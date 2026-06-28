@@ -63,6 +63,34 @@ Tailscale **HTTPS** toggle and signing in on the phone are the two it can't do f
 
 ---
 
+## Using it
+
+The phone app just holds your connection — everything happens on the glasses with **three
+gestures**, reassigned per screen (each screen shows a hint of what they do):
+
+> **tap** = the primary action · **double-tap** = back · **swipe up/down** = move / scroll
+
+- **The fleet** — your sessions, sorted by what needs you: **!** waiting on you · **●** working
+  · **○** idle. Each row is `tag  title` (the tag is the tmux window / project). Swipe to scroll
+  (**▶** marks the selected row), tap to open. The top row, **＋ new session**, starts a new one.
+- **Reading a session** — opens at the latest question. Swipe to scroll the real prompts and
+  replies. **Double-tap** walks you back toward the live edge — latest prompt → bottom → out to
+  the list. Tap to reply.
+- **Replying** — tap to talk: speak, review the transcription (with its cost), tap to send. No
+  OpenAI key? **Type it on your phone** instead — same result.
+- **Approving a command** — when a session asks to run something, you **read the full command on
+  the glasses first** (swipe through it), then tap to choose, swipe to Yes/No, tap to confirm.
+  You never approve something you can't see.
+- **Starting a session** — tap **＋ new session**, pick a project tag, speak or type a folder, and
+  a Claude session opens there.
+- **Idle sleep** *(optional)* — set a screen on-time in Setup; the HUD blanks when idle and wakes
+  on any gesture (or when a session finishes / starts needing you).
+
+Double-tap on the fleet list exits the app (system dialog). The phone Even app must stay running
+in the background — it's the Bluetooth bridge to the glasses.
+
+---
+
 ## Security model
 
 This backend **runs commands on your machine** — treat it as a remote-control surface:

@@ -1,10 +1,13 @@
 TMUXor — see and continue your tmux + Claude Code sessions from your Even G2 glasses.
 
-Running a fleet of Claude Code sessions on your computer? TMUXor puts them on your glasses so your work stays trackable, hands-free — see which session needs you, read its real prompts and replies, and reply by voice, over your own private Tailscale network. Nothing is sent to the app developer.
+Run a fleet of Claude Code sessions on your computer? TMUXor puts them on your glasses so your work stays trackable, hands-free — over your own private Tailscale network. Nothing is sent to the app developer.
 
-• Tagged fleet — each tmux window is a project tag, so you tell sessions apart at a glance and jump to the one that needs you.
-• Continue your work — read the actual conversation, reopened right where you left off.
-• Reply by voice — tap, speak, review the transcription, send. No OpenAI key? Type on your phone.
-• Start sessions — pick a tag, name a folder, and a Claude session opens there.
+• Tagged fleet, sorted by what needs you — each tmux window is a project tag.
+• Read the real conversation; double-tap jumps back to the latest prompt.
+• Reply by voice (tap, speak, send) — or type on your phone if you have no OpenAI key.
+• Approve safely — read the full command on the glasses before you pick Yes/No.
+• Start a session — pick a tag, name a folder, and Claude opens there.
+
+Controls: tap = do · double-tap = back · swipe = move/scroll.
 
 Setup (one time): full guide at github.com/liyiyuian/tmuxor — run install.sh on your computer, then paste the printed config code into the app. Needs tmux + Claude Code + Tailscale.

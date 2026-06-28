@@ -22,10 +22,11 @@ this folder. Agent supplies the text/images; you do the portal steps.
 | **App icon** | **`../glasses/icon-512.png`** |
 
 ## 2. Screenshots (upload in this order, from `screenshots/`)
-1. `01-fleet-list.png` — your sessions, sorted by what needs you (shows the ▶ on the selected row)
-2. `02-conversation.png` — read a session's real prompts + replies
-3. `03-new-session-tag.png` — start a new session by voice
-4. `04-voice-review.png` — review the transcription before sending
+1. `01-fleet-list.png` — your sessions, sorted by what needs you (▶ marks the selected row)
+2. `02-conversation.png` — read a session's real prompts + replies (footer = hints + position)
+3. `03-approve-command.png` — read the full command on the glasses before you approve it
+4. `04-voice-review.png` — review the transcription (with cost) before sending
+5. `05-new-session.png` — start a new session: pick a project tag
 
 *(All demo/fake data — no real sessions.)*
 

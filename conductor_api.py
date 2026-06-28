@@ -356,6 +356,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        # any unhandled error (bad ?lines=, a pane dying mid-request) -> JSON 500, not a dropped
+        # connection. The SSE route sends its own headers; if it already did, the 500 send no-ops.
+        try:
+            self._route_get()
+        except Exception as e:
+            try: self._json(500, {"error": str(e)})
+            except Exception: pass
+
+    def _route_get(self):
         u = urlparse(self.path)
         path, q = u.path, parse_qs(u.query)
         if path == "/api/health":
@@ -427,6 +436,13 @@ class Handler(BaseHTTPRequestHandler):
 
     # --- POST ---
     def do_POST(self):
+        try:
+            self._route_post()
+        except Exception as e:
+            try: self._json(500, {"error": str(e)})
+            except Exception: pass
+
+    def _route_post(self):
         u = urlparse(self.path)
         path, q = u.path, parse_qs(u.query)
         if not self._authed():
@@ -510,16 +526,21 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         last = None
         try:
-            for _ in range(36000):  # ~10h cap at 1s
+            for i in range(36000):  # ~10h cap at 1s
                 screen = tc.capture_pane(p["pane_id"], lines)
                 if screen != last:
                     last = screen
                     payload = json.dumps({"id": p["pane_id"], "text": screen})
                     self.wfile.write(f"data: {payload}\n\n".encode())
                     self.wfile.flush()
+                elif i % 15 == 0:
+                    self.wfile.write(b": ping\n\n")  # heartbeat: a disconnected client surfaces within ~15s
+                    self.wfile.flush()                # (instead of only when the screen next changes)
                 time.sleep(1)
         except (BrokenPipeError, ConnectionResetError):
             return
+        except Exception:
+            return  # pane closed mid-stream, or any other error -> end the stream cleanly
 
 
 def main():
