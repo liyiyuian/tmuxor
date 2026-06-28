@@ -78,7 +78,10 @@ let prevStatus = new Map<string, string>()
 export function noteActivity() { lastActivity = Date.now(); if (state.asleep) set({ asleep: false }) }
 export function idleTick() {
   const sec = getIdleSleepSec()
-  if (sec > 0 && !state.asleep && Date.now() - lastActivity >= sec * 1000) set({ asleep: true })
+  // never sleep mid-input: only the passive view/list state (phase 'view') is sleepable; while
+  // listening/reviewing, voice/typing activity also bumps lastActivity (see beginMic/setTypingText)
+  if (!sec || state.asleep || state.phase !== 'view') return
+  if (Date.now() - lastActivity >= sec * 1000) set({ asleep: true })
 }
 
 const ORDER: Record<string, number> = { waiting: 0, working: 1, idle: 2, other: 3 }
@@ -376,15 +379,18 @@ export function menuToRead() { set({ menuPhase: 'read' }) }
 //   below the prompt but not at the bottom -> jump to the bottom (live edge);
 //   already at the bottom -> return false so the caller leaves to the list.
 export function jumpToLatest(): boolean {
-  if (state.atBottom) return false   // already following the live edge -> leave to the list
+  // at the live edge, or the whole conversation fits on screen -> nothing to jump to; leave to list
+  if (state.atBottom || state.lines.length <= VIEW_SLOTS) return false
   const ms = maxScroll(state.lines.length, VIEW_SLOTS)
-  const promptPos = lastPromptIndex(state.lines)
-  // NOT already showing the latest prompt at the top (whether you scrolled up above it OR down
-  // into its answer) -> bring that prompt to the TOP. scroll may exceed the normal bottom (ms) so
-  // even a short last exchange lands prompt-first (the view display + buildView allow this
-  // over-scroll). Already on the prompt -> jump to the live edge (bottom).
-  if (state.scroll !== promptPos) set({ scroll: promptPos, atBottom: false })
-  else set({ scroll: ms, atBottom: true })
+  // Claude pane not already showing the latest prompt at the top (whether you scrolled up above it
+  // OR down into its answer) -> bring that prompt to the TOP. scroll may exceed the normal bottom
+  // (ms) so even a short last exchange lands prompt-first (the view display + buildView allow this
+  // over-scroll). Shell panes have no prompt marker, and "already on the prompt" -> live edge.
+  if (state.activeIsClaude) {
+    const promptPos = lastPromptIndex(state.lines)
+    if (state.scroll !== promptPos) { set({ scroll: promptPos, atBottom: false }); return true }
+  }
+  set({ scroll: ms, atBottom: true })
   return true
 }
 
@@ -414,7 +420,7 @@ function beginMic() {
   pcm = []
   try {
     mic = new GlassBridgeSource()
-    micUnsub = mic.onAudioData((chunk, rate) => { pcm.push(chunk); micRate = rate })
+    micUnsub = mic.onAudioData((chunk, rate) => { pcm.push(chunk); micRate = rate; noteActivity() })
     // start() is async — handle a denied/failed mic so the rejection isn't unhandled
     // (clean-console requirement) and the user gets told instead of a silent hang.
     mic.start().catch(() => { stopMic(); set({ status: 'mic unavailable — check microphone permission' }) })
@@ -510,6 +516,7 @@ export function chooseNewTag() {
 // recording (typed text wins). Available at every input point, even when voice is on.
 export function setTypingText(t: string) {
   if (t && mic) { stopMic(); pcm = [] }  // started typing -> drop the voice recording
+  noteActivity()  // typing keeps the HUD awake even with no glasses gestures
   set({ typingText: t })
 }
 

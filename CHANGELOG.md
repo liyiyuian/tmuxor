@@ -6,6 +6,11 @@ project memory; this file is the short "what changed" for each build.
 > Builds: TMUXor ships as a single **public** `.ehpk` — it bakes no secrets, so every user
 > enters their own backend URL + token on the app's Setup screen.
 
+## 1.0.4 — 2026-06-28
+- **Final-review polish:** double-tap leaves right away when the whole conversation already fits on
+  screen (no needless scroll), and skips the prompt step on plain shell panes; the glasses no longer
+  sleep while you're recording or typing; and a send error can't get clipped off the review screen.
+
 ## 1.0.3 — 2026-06-28
 - **Fix (for real this time): double-tap brings you to the latest prompt from anywhere.** 1.0.2
   only worked if you'd scrolled *above* the prompt; while reading the *answer* (below the prompt)

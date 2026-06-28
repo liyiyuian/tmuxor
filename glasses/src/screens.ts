@@ -111,12 +111,14 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
     }
     if (s.phase === 'confirm') {
       if (s.busy) return { lines: [...glassHeader(title, 'REVIEW'), line(s.status || 'working…', 'meta')] }
-      // full-bleed, scrollable transcript (rendered in columns mode → no left margin)
+      // full-bleed, scrollable transcript (rendered in columns mode → no left margin).
+      // a status line (send/translate failure) takes one slot so we never exceed the ~10-line budget.
       const total = s.draftLines.length
-      const top = Math.max(0, Math.min(s.confirmScroll, Math.max(0, total - DETAIL_SLOTS)))
-      const win = s.draftLines.slice(top, top + DETAIL_SLOTS)
+      const slots = DETAIL_SLOTS - (s.status ? 1 : 0)
+      const top = Math.max(0, Math.min(s.confirmScroll, Math.max(0, total - slots)))
+      const win = s.draftLines.slice(top, top + slots)
       const up = top > 0 ? '▲' : ' '
-      const dn = top + DETAIL_SLOTS < total ? '▼' : ' '
+      const dn = top + slots < total ? '▼' : ' '
       const label = s.activeIsClaude ? 'You said' : 'Will run'
       const out = [line(`${label} ${up}${dn}  tap=SEND ◀◀=redo`, 'normal'), ...win.map((l) => line(l, 'meta'))]
       if (s.status) out.push(line(s.status, 'meta')) // surface send/translate failures

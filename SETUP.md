@@ -195,7 +195,7 @@ elsewhere, adjust `PROJECT_ROOTS` / `SESSION_DIRS` in `tmux_conductor.py`.
 - The `.ehpk` you submit publicly must **not** contain your URL/token — enter them on-device.
 - Treat `CONDUCTOR_TOKEN` like a password (it's the key to running commands on your machine).
   To rotate: change it in the env file, `systemctl --user restart tmux-conductor`, and
-  re-enter it in the app's Settings.
+  re-enter it on the app's Setup screen.
 
 ---
 
@@ -205,7 +205,7 @@ elsewhere, adjust `PROJECT_ROOTS` / `SESSION_DIRS` in `tmux_conductor.py`.
 |---|---|
 | App shows "offline" / load failed | Backend down, wrong URL/token, or phone not on Tailscale. Check `systemctl --user status tmux-conductor` and `tailscale serve status`. |
 | Service won't start | Missing `CONDUCTOR_TOKEN` (required), or wrong python/repo path in the unit. `journalctl --user -u tmux-conductor -e`. |
-| 401 on every request | Token in the app's Settings doesn't match `CONDUCTOR_TOKEN`. |
+| 401 on every request | Token on the app's Setup screen doesn't match `CONDUCTOR_TOKEN`. |
 | New session opens the wrong profile | Set `CONDUCTOR_LAUNCH_CMD` to your launcher (e.g. a profile shell function). |
 | App won't update to the new build | Uninstall the old version first, then install (Even keys by version). |
 | Voice does nothing | Check `OPENAI_API_KEY`; confirm glasses mic permission is granted to the app. |

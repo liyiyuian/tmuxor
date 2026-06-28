@@ -6,8 +6,8 @@ this folder. Agent supplies the text/images; you do the portal steps.
 ## 0. Create the project (do this first)
 - **Create a BRAND-NEW project** on hub.evenrealities.com.
 - **Package ID:** `com.liyiyuian.tmuxor` (must match the build's `app.json`).
-- **Upload build:** `glasses/TMUXor-1.0.0.ehpk` — the only build; it bakes no secrets, so
-  every user enters their own backend URL + token in the app's Setup screen.
+- **Upload build:** the latest `glasses/TMUXor-*.ehpk` (highest version number) — the only build;
+  it bakes no secrets, so every user enters their own backend URL + token in the app's Setup screen.
 - Uninstall any old "tmux Conductor / TMUXor" build first (it was a different package id).
 
 ## 1. Listing fields
@@ -16,7 +16,7 @@ this folder. Agent supplies the text/images; you do the portal steps.
 | **App name** | `TMUXor` |
 | **Subtitle / tagline** | `Your tmux Claude Code fleet, hands-free on your glasses` |
 | **Category** | `Productivity / Developer Tools` |
-| **Description** (≤1000 chars) | the full contents of **`tester-quickstart.txt`** (983 chars) |
+| **Description** (≤1000 chars) | the full contents of **`tester-quickstart.txt`** (~960 chars) |
 | **Privacy policy** | the **PRIVACY POLICY** section of **`listing.txt`** |
 | **Terms & conditions** | the **TERMS & CONDITIONS** section of **`listing.txt`** |
 | **App icon** | **`../glasses/icon-512.png`** |
@@ -36,7 +36,7 @@ this folder. Agent supplies the text/images; you do the portal steps.
   own backend. Only `network` + `g2-microphone` are requested.
 
 ## 4. Before you hit submit — on-device checklist (beta track)
-Install `TMUXor-1.0.0.ehpk` via a Beta group and confirm on the real glasses:
+Install the latest `TMUXor-*.ehpk` via a Beta group and confirm on the real glasses:
 - [ ] Fleet list **scrolls** with swipe on a long fleet; ▶ marks the selected row
 - [ ] App opens straight to the Settings screen on the phone; paste-config connects
 - [ ] Tap a session → reads its real conversation; reply by voice (or type on phone) sends
