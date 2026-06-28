@@ -134,7 +134,7 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
         const win = body.slice(top, top + DETAIL_SLOTS)
         const up = top > 0 ? '▲' : ' '
         const dn = top + DETAIL_SLOTS < body.length ? '▼' : ' '
-        const head = `approve? ${up}${dn}  swipe=read · tap=choose · ◀◀=back`
+        const head = `read ${up}${dn}  swipe · tap=choose · ◀◀=back`
         return { lines: [line(truncateGlassText(head), 'normal'), ...win.map((l) => line(truncateGlassText(l), 'meta'))] }
       }
       // PICK: choose the option (▶ marks the selection; columns mode flattens the style).

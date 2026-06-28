@@ -6,6 +6,12 @@ project memory; this file is the short "what changed" for each build.
 > Builds: TMUXor ships as a single **public** `.ehpk` — it bakes no secrets, so every user
 > enters their own backend URL + token on the app's Setup screen.
 
+## 1.0.5 — 2026-06-28
+- **Fix: multi-option prompts (AskUserQuestion) read clearly.** The read view had kept each
+  option's description but dropped the "1. … / 2. …" lines above them, so the descriptions looked
+  orphaned ("structure messed up"). The read view now shows the whole prompt — the question, each
+  numbered option, and its description, in order — then tap to choose.
+
 ## 1.0.4 — 2026-06-28
 - **Final-review polish:** double-tap leaves right away when the whole conversation already fits on
   screen (no needless scroll), and skips the prompt step on plain shell panes; the glasses no longer

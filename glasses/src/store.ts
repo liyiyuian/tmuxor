@@ -272,13 +272,13 @@ function cleanActivity(raw: string[]): string {
   if (!s) return ''
   return s.replace(/^[^\w]+/, '').split(/esc to interrupt/i)[0].replace(/[\s·,(|]+$/, '').trim()
 }
-// The command / diff / context a permission prompt is asking you to approve: the captured
-// screen minus TUI chrome, the option rows, and the navigation hint — i.e. everything you
-// need to READ before choosing. Pre-wrapped to the display width.
+// The full prompt as you'd read it on the terminal — the question, the numbered options AND
+// their descriptions (an AskUserQuestion's structure lives in those indented descriptions, so
+// keep the option lines as anchors), minus only TUI chrome (handled by cleanLines) and the
+// navigation-hint line. Pre-wrapped to the display width. PICK then chooses among the options.
 function menuBodyLines(raw: string[]): string[] {
-  const optRe = /^\s*(❯|›|>|\*)?\s*\d+[.)]\s/
   const navRe = /to navigate|to select|✔ ?submit|esc to cancel/i
-  return softWrap(cleanLines(raw).filter((l) => !optRe.test(l) && !navRe.test(l)))
+  return softWrap(cleanLines(raw).filter((l) => !navRe.test(l)))
 }
 function updateLive(text: string) {
   const raw = text.split('\n')
