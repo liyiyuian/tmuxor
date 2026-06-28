@@ -40,7 +40,8 @@ glasses so you can stay in flow without reaching for the laptop.
   Tailscale, behind a token you set. Nothing is sent to the app developer.
 
 Requires a one-time backend setup on your computer (tmux + Claude Code +
-Tailscale). Setup guide included.
+Tailscale). Full setup guide: github.com/liyiyuian/tmuxor — run install.sh,
+then paste the printed config code into the app.
 
 
 CATEGORY

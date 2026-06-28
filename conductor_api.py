@@ -26,7 +26,6 @@ import hmac
 import json
 import os
 import re
-import subprocess
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -44,6 +43,13 @@ TMUX_SESSION = os.environ.get("CONDUCTOR_TMUX_SESSION", "0")
 # command typed into a freshly-spawned pane to start a session (override per-user,
 # e.g. a shell fn that pins a Claude profile). Default = plain `claude`.
 LAUNCH_CMD = os.environ.get("CONDUCTOR_LAUNCH_CMD", "claude")
+# New sessions create their folder UNDER this base only (so we never touch unrelated dirs).
+# Default ~/projects; the phone Setup can override it per-request.
+PROJECTS_BASE = os.path.abspath(os.path.expanduser(os.environ.get("CONDUCTOR_PROJECTS_DIR", "~/projects")))
+
+
+def _projects_base(override=None):
+    return os.path.abspath(os.path.expanduser(override)) if override else PROJECTS_BASE
 
 
 # A pane is "waiting" (needs you) when an interactive prompt/menu is on screen.
@@ -92,10 +98,9 @@ ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
 
 def _anthropic_key():
-    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_API_GEMA"):
-        v = os.environ.get(name, "")
-        if v.startswith("sk-ant-"):
-            return v
+    v = os.environ.get("ANTHROPIC_API_KEY", "")
+    if v.startswith("sk-ant-"):
+        return v
     try:
         with open(os.path.expanduser("~/.env")) as f:
             for ln in f:
@@ -152,11 +157,41 @@ def wav_seconds(audio):
     return 0.0
 
 
-def whisper_transcribe(audio):
-    """Transcribe WAV audio bytes via OpenAI Whisper. Key from OPENAI_API_KEY."""
-    key = os.environ.get("OPENAI_API_KEY", "")
+def _openai_key_files(path_override=None):
+    return [p for p in (path_override, os.environ.get("CONDUCTOR_OPENAI_KEY_PATH"),
+                        "~/.env", "~/.openai", "~/.config/openai/key", "~/.config/openai.env") if p]
+
+
+def openai_key_checked(path_override=None):
+    """Human-readable list of WHERE we look for the key — shown when voice is off."""
+    return ["OPENAI_API_KEY env var"] + [os.path.expanduser(p) for p in _openai_key_files(path_override)]
+
+
+def openai_key(path_override=None):
+    """Find the OpenAI key WITHOUT it ever touching the phone: env var first, then common key
+    files on this machine (and an optional user-set path). Returns '' if none found. Excludes
+    Anthropic keys (sk-ant-)."""
+    k = os.environ.get("OPENAI_API_KEY", "")
+    if k.startswith("sk-") and not k.startswith("sk-ant-"):
+        return k
+    for p in _openai_key_files(path_override):
+        try:
+            with open(os.path.expanduser(p)) as f:
+                txt = f.read()
+        except OSError:
+            continue
+        # prefer an OPENAI_API_KEY=... line; else a bare sk-... that isn't an Anthropic key
+        m = re.search(r"OPENAI_API_KEY\s*[=:]\s*['\"]?(sk-[A-Za-z0-9_\-]{20,})", txt) \
+            or re.search(r"(?<![A-Za-z0-9])(sk-(?!ant-)[A-Za-z0-9_\-]{20,})", txt)
+        if m:
+            return m.group(1)
+    return ""
+
+
+def whisper_transcribe(audio, key):
+    """Transcribe WAV audio bytes via OpenAI Whisper using the provided key."""
     if not key.startswith("sk-"):
-        raise RuntimeError("no OPENAI_API_KEY in environment")
+        raise RuntimeError("no OpenAI API key found (set OPENAI_API_KEY, put it in ~/.env, or set a key-file path in Setup)")
     boundary = "----conductor-" + str(int(time.time() * 1000))
     crlf = b"\r\n"
     bb = boundary.encode()
@@ -181,7 +216,7 @@ def whisper_transcribe(audio):
 
 # --- new session: resolve a spoken folder -> dir, spawn a pane in window 1 ---
 
-def resolve_folder(spoken):
+def resolve_folder(spoken, base=None):
     s = (spoken or "").strip().rstrip(".")
     if not s:
         return None
@@ -190,7 +225,7 @@ def resolve_folder(spoken):
         return os.path.abspath(cand)
     norm = re.sub(r"[\s_\-]", "", s.lower())
     bases, seen = [], set()
-    for root in ("~/projects", "~/Documents", "~"):
+    for root in (_projects_base(base), "~/projects", "~/Documents", "~"):
         r = os.path.expanduser(root)
         try:
             for d in sorted(os.listdir(r)):
@@ -208,10 +243,16 @@ def resolve_folder(spoken):
     for name, b in named:  # exact basename first
         if name and name == norm:
             return os.path.abspath(b)
-    for name, b in named:  # then contains
-        if name and (norm in name or name in norm):
+    for name, b in named:  # then partial — require a substantial (>=4 char) overlap so a short
+        if name and min(len(name), len(norm)) >= 4 and (norm in name or name in norm):  # folder name doesn't match unrelated input
             return os.path.abspath(b)
     return None
+
+
+def propose_folder(spoken, base):
+    """When no folder matches, propose a safe path to CREATE under `base`: <base>/<name>."""
+    name = re.sub(r"[^\w.-]+", "-", (spoken or "").strip().lower()).strip("-")[:40] or "session"
+    return os.path.join(base, name)
 
 
 def list_windows():
@@ -229,12 +270,18 @@ def _session_exists():
     return tc._run(["has-session", "-t", TMUX_SESSION]).returncode == 0
 
 
-def create_session(folder, tag=None):
+def create_session(folder, tag=None, base=None):
     """Open a Claude session in `folder` under a project `tag` (tmux window): if a
     window named `tag` exists, add the session as a new pane there; otherwise open a
     new window named `tag` (or the folder's basename). On a fresh machine with NO tmux
     session yet, create the session itself with this as its first window. Returns
     (pane_id, how)."""
+    if not os.path.isdir(folder):  # create it — but ONLY under the projects base, never elsewhere
+        af, b = os.path.abspath(folder), _projects_base(base)
+        if af == b or af.startswith(b + os.sep):
+            os.makedirs(folder, exist_ok=True)
+        else:
+            raise RuntimeError("refusing to create a folder outside the projects base")
     have = _session_exists()
     idx = None
     if tag and have:
@@ -312,10 +359,20 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         path, q = u.path, parse_qs(u.query)
         if path == "/api/health":
-            # advertise whether voice works (OpenAI key present) so the app can gate
-            # the talk gesture instead of failing on transcribe. No secret leaked.
-            voice = os.environ.get("OPENAI_API_KEY", "").startswith("sk-")
-            return self._json(200, {"ok": True, "service": "conductor-api", "voice": voice})
+            # advertise whether voice works (an OpenAI key was found) so the app can gate the
+            # talk gesture instead of failing on transcribe. Returns a bool, never the key.
+            # Health stays unauthenticated as a reachability probe, BUT the caller-supplied
+            # keypath (which opens a file) and the absolute "checked" paths are honored ONLY
+            # for an authenticated caller — otherwise an unauthenticated tailnet peer could
+            # open an arbitrary file (DoS / secret-presence oracle) or learn this machine's
+            # home directory. The phone always carries the token, so it still gets both.
+            authed = self._authed()
+            kp = q.get("keypath", [None])[0] if authed else None
+            voice = bool(openai_key(kp))
+            resp = {"ok": True, "service": "conductor-api", "voice": voice}
+            if not voice and authed:
+                resp["checked"] = openai_key_checked(kp)  # tell the user WHERE we looked
+            return self._json(200, resp)
         if not self._authed():
             return self._json(401, {"error": "unauthorized"})
         if path == "/api/panes":
@@ -370,7 +427,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # --- POST ---
     def do_POST(self):
-        path = urlparse(self.path).path
+        u = urlparse(self.path)
+        path, q = u.path, parse_qs(u.query)
         if not self._authed():
             return self._json(401, {"error": "unauthorized"})
         if path == "/api/transcribe":  # raw WAV body -> Whisper (read before JSON parse)
@@ -379,7 +437,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 secs = wav_seconds(audio)
                 return self._json(200, {
-                    "text": whisper_transcribe(audio),
+                    "text": whisper_transcribe(audio, openai_key(q.get("keypath", [None])[0])),
                     "seconds": round(secs, 1),
                     "cost": round(secs / 60 * WHISPER_USD_PER_MIN, 4),
                 })
@@ -396,7 +454,10 @@ class Handler(BaseHTTPRequestHandler):
             text = body.get("text", "")
             if not text:
                 return self._json(400, {"error": "text required"})
-            r = tc.send_text(p["pane_id"], text, submit=bool(body.get("submit", True)))
+            try:  # pane may be unsendable (the conductor's own pane) or closed mid-request
+                r = tc.send_text(p["pane_id"], text, submit=bool(body.get("submit", True)))
+            except Exception as e:
+                return self._json(502, {"error": str(e)})
             return self._json(200, {"ok": True, **r})
         m = re.fullmatch(r"/api/panes/(\d+)/keys", path)
         if m:
@@ -406,7 +467,10 @@ class Handler(BaseHTTPRequestHandler):
             keys = body.get("keys")
             if not keys:
                 return self._json(400, {"error": "keys required"})
-            return self._json(200, {"ok": True, **tc.send_keys(p["pane_id"], keys)})
+            try:
+                return self._json(200, {"ok": True, **tc.send_keys(p["pane_id"], keys)})
+            except Exception as e:
+                return self._json(502, {"error": str(e)})
         if path == "/api/translate":
             desc = body.get("description", "")
             if not desc:
@@ -416,17 +480,19 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._json(502, {"error": str(e)})
         if path == "/api/resolve-folder":
-            f = resolve_folder(body.get("text", ""))
-            return self._json(200, {"found": bool(f), "path": f or "", "query": body.get("text", "")})
+            q = body.get("text", ""); base = _projects_base(body.get("base"))
+            f = resolve_folder(q, base)
+            return self._json(200, {"found": bool(f), "path": f or "", "create_path": propose_folder(q, base), "query": q})
         if path == "/api/new-session":
-            f = body.get("path") or resolve_folder(body.get("text", ""))
-            if not f or not os.path.isdir(f):
+            base = body.get("base")
+            f = body.get("path") or resolve_folder(body.get("text", ""), base) or propose_folder(body.get("text", ""), _projects_base(base))
+            if not f:
                 return self._json(400, {"error": "folder not found", "query": body.get("text", "")})
             try:
                 # sanitize the spoken tag -> a safe tmux window name (no tabs/newlines/
                 # control chars that would corrupt the tab-delimited list-panes parse)
                 tag = re.sub(r"[^\w.-]", "", (body.get("tag") or "").strip()) or None
-                pane, how = create_session(f, tag)
+                pane, how = create_session(f, tag, base)  # create_session confines new dirs to the base
                 return self._json(200, {"ok": True, "pane": pane, "n": pane.lstrip("%"), "cwd": f, "how": how})
             except Exception as e:
                 return self._json(502, {"error": str(e)})
@@ -456,21 +522,17 @@ class Handler(BaseHTTPRequestHandler):
             return
 
 
-def tailscale_ip():
-    try:
-        out = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=5).stdout.split()
-        return out[0] if out else None
-    except Exception:
-        return None
-
-
 def main():
     port = int(os.environ.get("CONDUCTOR_API_PORT", "8790"))
     # fail closed: this control plane runs commands on the box, and loopback is NOT
     # user-isolated on Linux — so require a token in EVERY mode, and default to loopback.
     if not TOKEN:
         raise SystemExit("refusing to start without CONDUCTOR_TOKEN — this runs commands on your machine; set a token.")
-    bind = os.environ.get("CONDUCTOR_BIND") or tailscale_ip() or "127.0.0.1"
+    # default to loopback; publish to the tailnet over HTTPS with `tailscale serve`
+    # (install.sh does this). Never bind the open network — refuse 0.0.0.0 outright.
+    bind = os.environ.get("CONDUCTOR_BIND") or "127.0.0.1"
+    if bind == "0.0.0.0":
+        raise SystemExit("refusing to bind 0.0.0.0 — this runs commands on your machine; bind 127.0.0.1 and expose it with `tailscale serve`.")
     print(f"conductor-api on http://{bind}:{port}  (token required)")
     ThreadingHTTPServer((bind, port), Handler).serve_forever()
 

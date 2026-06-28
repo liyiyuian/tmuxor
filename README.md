@@ -3,8 +3,10 @@
 **Your tmux Claude Code fleet, hands-free on your Even G2 glasses.**
 
 TMUXor puts the Claude Code (and shell) sessions running in your tmux panes onto your
-glasses — see which session needs you, read its latest reply, and respond by voice —
-over your own private Tailscale network. Nothing is sent to anyone but your own machine.
+glasses, so your running work stays trackable and hands-free. Each tmux window is a
+project **tag**, so you tell sessions apart at a glance — see which one needs you, read
+its real prompts and replies, and **continue** it by voice — over your own private
+Tailscale network. Nothing is sent to anyone but your own machine.
 
 This repo is the **backend** (a small stdlib-Python control plane that runs on your
 computer) plus the **glasses app source**. The glasses app itself installs from the
@@ -38,10 +40,11 @@ with `tailscale serve`, and prints a **scannable QR code** (plus a one-line conf
 Then on your phone:
 
 1. Install **TMUXor** from the Even Hub.
-2. Open it → **Setup** → tap **📷 Scan QR code** and scan the QR the installer printed.
+2. Open it — it opens straight to the **Setup** screen — and **paste the config code** the
+   installer printed (copy it from your terminal, or scan the QR with your phone's camera to
+   copy the text), then connect.
 
-That's it — no typing the URL or token. (No camera? Tap **Paste config** instead, or enter it
-by hand — see [SETUP.md](SETUP.md).)
+That's it — no typing the URL or token by hand. (Manual entry also available — see [SETUP.md](SETUP.md).)
 
 ### Requirements (prepare these first)
 - **Even G2 glasses** + the Even phone app, paired.
@@ -51,8 +54,9 @@ by hand — see [SETUP.md](SETUP.md).)
   Certificates enabled** for your tailnet (Tailscale admin console → Settings → enable
   HTTPS) — `tailscale serve` needs it for the secure URL the glasses connect to.
 - **Python 3.10+** on the computer.
-- *(Optional)* an **OpenAI API key** — only for voice replies. Without it, read + tap still
-  work and the app shows "voice off"; re-run the installer later to add it.
+- *(Optional)* an **OpenAI API key** — enables **voice input** (Whisper). Without it you simply
+  **type** your replies and new-session names on your phone instead — everything still works.
+  The installer prompts for it (Enter to skip; re-run later to add it).
 
 The installer checks Python / tmux / Claude / Tailscale and tells you what's missing. The
 Tailscale **HTTPS** toggle and signing in on the phone are the two it can't do for you.

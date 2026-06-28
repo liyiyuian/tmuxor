@@ -2,7 +2,7 @@
   "package_id": "com.liyiyuian.tmuxor",
   "edition": "202601",
   "name": "TMUXor",
-  "version": "1.3.0",
+  "version": "1.0.0",
   "min_app_version": "2.0.0",
   "min_sdk_version": "0.0.7",
   "entrypoint": "index.html",
@@ -18,10 +18,6 @@
     {
       "name": "g2-microphone",
       "desc": "Capture glasses microphone audio for voice prompts."
-    },
-    {
-      "name": "camera",
-      "desc": "Scan the setup QR code from install.sh to enter your backend URL and token."
     }
   ],
   "supported_languages": [

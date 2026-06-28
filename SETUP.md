@@ -23,7 +23,8 @@ On the **computer** that runs your sessions:
 - [Claude Code](https://claude.com/claude-code) installed (the app reads its session files).
 - **Python 3.10+** (no pip packages needed — the backend uses only the standard library + the `tmux` CLI).
 - **Tailscale** installed and logged in.
-- An **OpenAI API key** (for voice→text via Whisper).
+- *(Optional)* an **OpenAI API key** — enables voice→text via Whisper. Without it, voice is
+  off and you type your replies on the phone instead; everything else still works.
 - *(Optional)* an **Anthropic API key** — only used to translate speech→shell command for
   non-Claude (plain shell) panes. Claude panes don't need it.
 - **Node 18+ / npm** (only to build the glasses app once).
@@ -157,9 +158,9 @@ Open TMUXor on the phone. On first launch it shows a **Setup** screen — enter:
 - **Backend URL**: your `https://<host>.<tailnet>.ts.net`
 - **Access token**: your `CONDUCTOR_TOKEN`
 
-Tap **Save & connect**. (These stay on your phone only; you can change them later via the
-**Settings** button.) The phone Even app must stay running in the background — it's the
-Bluetooth bridge to the glasses.
+Tap **Save & connect**. (These stay on your phone only; the app always opens to this Setup
+screen, so you can change them any time.) The phone Even app must stay running in the
+background — it's the Bluetooth bridge to the glasses.
 
 ---
 

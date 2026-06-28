@@ -62,16 +62,17 @@ else
   ok "reusing existing access token"
 fi
 
-# 4) OpenAI key (optional — voice) ------------------------------------------
+# 4) OpenAI key (OPTIONAL) — enables VOICE input. Without it you just type replies and
+#    new-session names on your phone instead. ---------------------------------
 if [ "${TMUXOR_OPENAI_KEY+set}" = set ]; then
   OPENAI_KEY="$TMUXOR_OPENAI_KEY"
 elif [ -r /dev/tty ]; then
-  printf 'OpenAI API key for voice replies (Whisper) — paste it, or press Enter to skip: '
+  printf 'OpenAI API key (optional) — enables VOICE input via Whisper; without it you type on your phone. Paste it, or Enter to skip: '
   read -r OPENAI_KEY </dev/tty || OPENAI_KEY=""
 else
   OPENAI_KEY=""
 fi
-[ -n "$OPENAI_KEY" ] && ok "voice enabled" || warn "no OpenAI key — voice OFF (read + tap still work; re-run later to enable)"
+[ -n "$OPENAI_KEY" ] && ok "voice input enabled" || warn "no OpenAI key — voice input off; you'll type replies/new-session names on your phone (re-run later to add voice)."
 
 # 5) write env file (chmod 600) ---------------------------------------------
 mkdir -p "$(dirname "$ENV_FILE")"
@@ -123,15 +124,13 @@ ok "TMUXor backend is up."
 c  "Backend URL : $URL"
 c  "Token       : $TOKEN"
 echo
-if command -v qrencode >/dev/null; then
-  c "On your phone: open TMUXor → Setup → '📷 Scan QR code' and scan this:"
-  qrencode -t ANSIUTF8 "$BLOB"
-  qrencode -o "$HOME/tmuxor-setup-qr.png" "$BLOB" 2>/dev/null && c "(also saved ~/tmuxor-setup-qr.png — open it fullscreen for an easier scan)"
-else
-  warn "install 'qrencode' (e.g. brew/apt install qrencode) to get a scannable setup QR."
-fi
-echo
-c  "No camera / prefer to paste? In Setup tap 'Paste config' and paste this line:"
+c  "On your phone: open TMUXor → Setup → 'Paste config'. Paste this line:"
 echo "  $BLOB"
+if command -v qrencode >/dev/null; then
+  echo
+  c "(or scan this QR with your phone's camera to copy the code, then paste it)"
+  qrencode -t ANSIUTF8 "$BLOB"
+  qrencode -o "$HOME/tmuxor-setup-qr.png" "$BLOB" 2>/dev/null && c "(QR also saved to ~/tmuxor-setup-qr.png)"
+fi
 echo
 [ -z "$DNS" ] && warn "couldn't read your Tailscale domain — run 'tailscale status' and use your https://<host>.ts.net URL."

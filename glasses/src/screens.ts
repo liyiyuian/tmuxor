@@ -64,8 +64,11 @@ const listScreen: GlassScreen<AppState, Ctx> = {
       items,
       highlightedIndex: nav.highlightedIndex,
       maxVisible: VIS,
-      // tag (project) first — it's the disambiguator across ~35 sessions; only the long title clips
-      formatter: (it) => (it ? truncateGlassText(`${GLYPH[it.status] ?? '·'} ${it.tag}  ${it.label}`) : '＋ new session'),
+      // tag (project) first — it's the disambiguator across ~35 sessions; only the long title clips.
+      // ▶ marks the selected row by TEXT (columns page mode flattens the line highlight style); the
+      // 3-space else keeps rows aligned. Marker is inside truncateGlassText so width still fits ~568px.
+      formatter: (it, i) =>
+        truncateGlassText(`${i === nav.highlightedIndex ? '▶ ' : '   '}${it ? `${GLYPH[it.status] ?? '·'} ${it.tag}  ${it.label}` : '＋ new session'}`),
     })
     return { lines: [...glassHeader(`PANELS ${s.panes.length} · p${page}/${pages} ◀◀=exit`, bar), ...list] }
   },
@@ -95,10 +98,10 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
     const title = clip(s.activeLabel || 'session', 18)
     if (s.phase === 'listening') {
       return { lines: [
-        ...glassHeader(title, 'LISTENING'),
-        line('● ' + (s.status || `Speak your ${s.activeIsClaude ? 'message' : 'command'} now…`), 'normal'),
+        ...glassHeader(title, s.typingText ? 'TYPING' : (s.voiceOn ? 'LISTENING' : 'TYPE ON PHONE')),
+        line('● ' + (s.typingText ? truncateGlassText(s.typingText) : (s.status || (s.voiceOn ? `Speak your ${s.activeIsClaude ? 'message' : 'command'}…` : 'Type it on your phone…'))), 'normal'),
         line('', 'meta'),
-        line('Tap when done · double-tap cancels', 'meta'),
+        line(s.voiceOn ? 'Tap when done · type on phone · ◀◀ cancels' : 'Type on your phone · ◀◀ cancels', 'meta'),
       ] }
     }
     if (s.phase === 'confirm') {
@@ -211,21 +214,22 @@ const newScreen: GlassScreen<AppState, Ctx> = {
     }
     if (s.newPhase === 'tagvoice')
       return { lines: [
-        ...glassHeader('NEW TAG', 'tap=done ◀◀=back'),
-        line('● ' + (s.newStatus || 'Speak the tag name…'), 'normal'),
-        line('e.g. "gema", "hcppi"', 'meta'),
+        ...glassHeader('NEW TAG', s.typingText ? 'TYPING' : (s.voiceOn ? 'tap=done ◀◀=back' : 'type on phone ◀◀=back')),
+        line('● ' + (s.typingText ? truncateGlassText(s.typingText) : (s.newStatus || (s.voiceOn ? 'Speak the tag name…' : 'Type the tag name on your phone…'))), 'normal'),
+        line('e.g. "api", "web", "infra"', 'meta'),
       ] }
     if (s.newPhase === 'confirm') {
-      const out = [...glassHeader('NEW SESSION', 'tap=create ◀◀=cancel'), line(`tag:  ${s.newTag || '(new window by folder)'}`, 'normal'), line('folder:', 'meta')]
+      const out = [...glassHeader('NEW SESSION', 'tap=create ◀◀=cancel'), line(`tag:  ${s.newTag || '(new window by folder)'}`, 'normal'),
+        line(s.newCreate ? 'folder (NEW — will be created):' : 'folder:', s.newCreate ? 'normal' : 'meta')]
       out.push(...wrap(s.newPath, 42).slice(0, 4).map((l) => line(l, 'normal')))
       if (s.newStatus) out.push(line(s.newStatus, 'meta'))
       return { lines: out }
     }
     // listening (folder)
     return { lines: [
-      ...glassHeader(s.newTag ? `tag: ${clip(s.newTag, 12)}` : 'NEW SESSION', 'tap=done ◀◀=back'),
-      line('● ' + (s.newStatus || 'Speak the folder…'), 'normal'),
-      line('e.g. "evenrealities", "blood proteomics"', 'meta'),
+      ...glassHeader(s.newTag ? `tag: ${clip(s.newTag, 12)}` : 'NEW SESSION', s.typingText ? 'TYPING' : (s.voiceOn ? 'tap=done ◀◀=back' : 'type on phone ◀◀=back')),
+      line('● ' + (s.typingText ? truncateGlassText(s.typingText) : (s.newStatus || (s.voiceOn ? 'Speak the folder…' : 'Type the folder on your phone…'))), 'normal'),
+      line('e.g. "my-project", "notes"', 'meta'),
     ] }
   },
   action(a, nav, s, ctx) {

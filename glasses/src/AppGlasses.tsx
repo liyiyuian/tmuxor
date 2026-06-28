@@ -34,9 +34,9 @@ export function App() {
     // fleet immediately so you don't wait for the next poll.
     let unsub: (() => void) | undefined
     waitForEvenAppBridge()
-      .then((b) => { unsub = b.onLaunchSource((src) => { console.log('launched from', src); refresh() }) })
+      .then((b) => { unsub = b.onLaunchSource(() => { refresh() }) })
       .catch(() => {})
-    // full teardown (SSE stream, conversation poll, mic) if App unmounts (e.g. Settings)
+    // full teardown (SSE stream, conversation poll, mic) if App ever unmounts
     return () => { clearInterval(t); unsub?.(); closePane() }
   }, [])
 
@@ -48,10 +48,15 @@ export function App() {
     toColumns: (s, nav) => ({ columns: [router.toDisplayData(s, nav).lines.map((l) => l.text).join('\n')] }),
     onGlassAction: (a, nav, s) => router.onGlassAction(a, nav, s, ctx),
     deriveScreen: () => 'list',
-    // Full-bleed columns mode for the live detail VIEW and the REVIEW transcript
-    // (both want full width); styled text mode elsewhere (list/menu/listening).
-    getPageMode: () => {
+    // Columns mode for: the session LIST, the live detail VIEW, and the REVIEW transcript.
+    // The list MUST be columns, not the home/text page — on the real G2 a home-page text
+    // container does not forward swipe->scroll events to the app (taps work, scroll doesn't),
+    // so a long fleet couldn't scroll; columns mode forwards them (same as the detail view).
+    // The selected row is shown by a ▶ marker (screens.ts), since columns flattens line styles.
+    // Styled text mode stays for the menu + the new-session input screens.
+    getPageMode: (screen) => {
       const s = getSnapshot()
+      if (screen === 'list') return 'columns'
       if (!s.activePaneN || s.menu) return 'text'
       if (s.phase === 'view') return 'columns'
       if (s.phase === 'confirm' && !s.busy) return 'columns'

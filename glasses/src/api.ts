@@ -1,6 +1,6 @@
 // Client for conductor_api.py (the JSON control-plane over the tmux fleet).
 // Connection comes from per-user config (localStorage), NOT build-time secrets.
-import { getConfig } from './config'
+import { getConfig, getProjectsDir, getOpenaiKeyPath } from './config'
 
 const base = () => getConfig().base
 const authHeaders = (): Record<string, string> => {
@@ -29,10 +29,13 @@ export async function listPanes(claudeOnly = true): Promise<Pane[]> {
   return (await r.json()).panes
 }
 
-// Unauthenticated capability probe — `voice` is true only if the backend has an
-// OpenAI key, so the app can gate the talk gesture instead of failing on transcribe.
-export async function health(): Promise<{ ok: boolean; voice: boolean }> {
-  const r = await fetch(`${base()}/api/health`)
+// Capability probe — `voice` is true only if the backend has an OpenAI key, so the app can
+// gate the talk gesture instead of failing on transcribe. Sends the token: the backend honors
+// the caller's key-file path and reports where it looked ONLY for authed callers (those are
+// gated behind auth so an unauthenticated tailnet peer can't probe arbitrary files).
+const keyPathQ = () => { const p = getOpenaiKeyPath(); return p ? `?keypath=${encodeURIComponent(p)}` : '' }
+export async function health(): Promise<{ ok: boolean; voice: boolean; checked?: string[] }> {
+  const r = await fetch(`${base()}/api/health${keyPathQ()}`, { headers: authHeaders() })
   if (!r.ok) throw new Error(`health ${r.status}`)
   return r.json()
 }
@@ -91,17 +94,17 @@ export async function translate(description: string, cwd: string): Promise<strin
 
 // Send captured WAV audio to the server -> OpenAI Whisper -> transcript + cost (USD).
 export async function transcribe(wav: Blob): Promise<{ text: string; cost: number; seconds: number }> {
-  const r = await fetch(`${base()}/api/transcribe`, { method: 'POST', headers: authHeaders(), body: wav })
+  const r = await fetch(`${base()}/api/transcribe${keyPathQ()}`, { method: 'POST', headers: authHeaders(), body: wav })
   if (!r.ok) throw new Error(`transcribe ${r.status}`)
   return r.json()
 }
 
 // New session: resolve a spoken folder to a directory, then spawn a Claude pane there.
-export async function resolveFolder(text: string): Promise<{ found: boolean; path: string }> {
+export async function resolveFolder(text: string): Promise<{ found: boolean; path: string; create_path: string }> {
   const r = await fetch(`${base()}/api/resolve-folder`, {
     method: 'POST',
     headers: { ...authHeaders(), 'content-type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, base: getProjectsDir() || undefined }),
   })
   if (!r.ok) throw new Error(`resolveFolder ${r.status}`)
   return r.json()
@@ -116,7 +119,7 @@ export async function newSession(path: string, tag?: string): Promise<{ ok?: boo
   const r = await fetch(`${base()}/api/new-session`, {
     method: 'POST',
     headers: { ...authHeaders(), 'content-type': 'application/json' },
-    body: JSON.stringify({ path, tag }),
+    body: JSON.stringify({ path, tag, base: getProjectsDir() || undefined }),
   })
   return r.json()
 }

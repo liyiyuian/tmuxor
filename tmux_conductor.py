@@ -358,14 +358,48 @@ def _proc_start_ticks(pid):
 _resolve_cache = {}  # pane_pid -> (claude_pid, procStart, sd_path, sessionId, cwd)
 
 
+def _live_jsonl(projects_dir, root_sid):
+    """Follow the compaction chain from root_sid to the newest live transcript.
+    A long-running session that compacts writes a NEW jsonl (new sessionId) referencing
+    its parent in the head, but the runtime record keeps the ORIGINAL id — so the exact
+    root jsonl freezes at compaction time. Walk root -> child -> ... and return the
+    most-recently-modified jsonl in root_sid's chain (its own file if it never compacted)."""
+    if not projects_dir.is_dir():
+        return None
+    files = list(projects_dir.glob("*.jsonl"))
+    chain, changed = {root_sid}, True
+    while changed:  # transitively add files whose head references anything already in the chain
+        changed = False
+        for f in files:
+            if f.stem in chain:
+                continue
+            try:
+                head = f.open(errors="replace").read(16384)
+            except OSError:
+                continue
+            if any(sid in head for sid in chain):
+                chain.add(f.stem); changed = True
+    best, best_m = None, -1.0
+    for f in files:
+        if f.stem in chain:
+            try:
+                m = f.stat().st_mtime
+            except OSError:
+                continue
+            if m > best_m:
+                best_m, best = m, f
+    return str(best) if best else None
+
+
 def _session_record(sd, claude_pid, sessionId, cwd):
-    """Re-read the live sessions/<pid>.json (fresh status) + re-derive the jsonl."""
+    """Re-read the live sessions/<pid>.json (fresh status) + resolve the live transcript
+    (following compaction from the record's sessionId)."""
     try:
         info = json.loads((sd / f"{claude_pid}.json").read_text())
     except Exception:
         return None
-    jsonl = sd.parent / "projects" / cwd.replace("/", "-") / f"{sessionId}.jsonl"
-    return {**info, "jsonl": str(jsonl) if jsonl.is_file() else None}
+    projects_dir = sd.parent / "projects" / cwd.replace("/", "-")
+    return {**info, "jsonl": _live_jsonl(projects_dir, sessionId)}
 
 
 def resolve_session(pane):
@@ -396,8 +430,8 @@ def resolve_session(pane):
                 continue  # stale record from a recycled pid
             cwd = info.get("cwd", "")
             _resolve_cache[pane_pid] = (pid, info.get("procStart"), str(sd), info.get("sessionId"), cwd)
-            jsonl = sd.parent / "projects" / cwd.replace("/", "-") / f'{info.get("sessionId")}.jsonl'
-            return {**info, "jsonl": str(jsonl) if jsonl.is_file() else None}
+            projects_dir = sd.parent / "projects" / cwd.replace("/", "-")
+            return {**info, "jsonl": _live_jsonl(projects_dir, info.get("sessionId"))}
     return None
 
 

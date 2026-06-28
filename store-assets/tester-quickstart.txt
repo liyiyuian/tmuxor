@@ -1,9 +1,10 @@
-TMUXor — your tmux Claude Code fleet, hands-free on your glasses. See which session needs you, read its replies, and reply by voice, over your own private Tailscale network.
+TMUXor — see and continue your tmux + Claude Code sessions from your Even G2 glasses.
 
-Setup (you run a small backend on your OWN computer; never share your token — it can run commands on your machine):
+Running a fleet of Claude Code sessions on your computer? TMUXor puts them on your glasses so your work stays trackable, hands-free — see which session needs you, read its real prompts and replies, and reply by voice, over your own private Tailscale network. Nothing is sent to the app developer.
 
-1) Get conductor_api.py + tmux_conductor.py from the developer. Set CONDUCTOR_TOKEN + OPENAI_API_KEY, then run: python3 conductor_api.py — and expose it on your tailnet: sudo tailscale serve --bg 8790
-2) Install TMUXor, open it, and on the Setup screen tap "Scan QR code" and scan the QR that install.sh printed (or paste the one-line code it shows). No need to ask the developer to whitelist your domain.
-3) Use it: tap = do, double-tap = back, swipe = move/scroll. Tap a session to read it (opens at the latest question); tap = talk to reply by voice, review the transcription, tap to send.
+• Tagged fleet — each tmux window is a project tag, so you tell sessions apart at a glance and jump to the one that needs you.
+• Continue your work — read the actual conversation, reopened right where you left off.
+• Reply by voice — tap, speak, review the transcription, send. No OpenAI key? Type on your phone.
+• Start sessions — pick a tag, name a folder, and a Claude session opens there.
 
-Needs: Even G2 glasses, tmux + Claude Code, Tailscale, Python 3.10+, an OpenAI API key.
+Setup (one time): full guide at github.com/liyiyuian/tmuxor — run install.sh on your computer, then paste the printed config code into the app. Needs tmux + Claude Code + Tailscale.

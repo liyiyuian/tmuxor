@@ -28,11 +28,13 @@ export interface AppState {
   working: boolean
   activity: string
   voiceOn: boolean   // backend has an OpenAI key -> voice replies available
+  voiceChecked: string[]  // when voice off, the locations the backend checked for a key
   phase: Phase
   draft: string
   draftKind: 'prompt' | 'command' | null
   busy: boolean
   status: string
+  typingText: string  // live text being typed on the phone (echoed to the glasses)
   draftLines: string[]   // the transcript/command, pixel-wrapped full-width for REVIEW
   confirmScroll: number
   lastCost: number   // USD of the last transcription
@@ -44,6 +46,7 @@ export interface AppState {
   newTagIndex: number    // highlight in the tag list (0 = "＋ New tag")
   newTag: string         // chosen/spoken tag
   newPath: string
+  newCreate: boolean  // the chosen folder doesn't exist yet -> confirm to create it
   newStatus: string
   newPaneN: string | null
 }
@@ -51,9 +54,9 @@ export interface AppState {
 let state: AppState = {
   panes: [], loading: true, error: null, listIndex: 0,
   activePaneN: null, activeLabel: '', activeIsClaude: false, activeCwd: '',
-  lines: [], menu: null, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true,
-  phase: 'view', draft: '', draftKind: null, busy: false, status: '', draftLines: [], confirmScroll: 0, lastCost: 0, totalCost: 0,
-  newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newStatus: '', newPaneN: null,
+  lines: [], menu: null, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [],
+  phase: 'view', draft: '', draftKind: null, busy: false, status: '', typingText: '', draftLines: [], confirmScroll: 0, lastCost: 0, totalCost: 0,
+  newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newCreate: false, newStatus: '', newPaneN: null,
 }
 const listeners = new Set<() => void>()
 export function getSnapshot() { return state }
@@ -70,7 +73,7 @@ export async function refresh() {
     const sig = JSON.stringify(panes)
     if (sig !== lastPanesSig) { lastPanesSig = sig; set({ panes, loading: false, error: null }) }  // skip identical re-push
     else if (state.loading || state.error) set({ loading: false, error: null })
-    health().then((h) => { if (h.voice !== state.voiceOn) set({ voiceOn: h.voice }) }).catch(() => {})
+    health().then((h) => set({ voiceOn: h.voice, voiceChecked: h.checked || [] })).catch(() => {})
   } catch (e) { set({ loading: false, error: String(e) }) }
 }
 
@@ -172,12 +175,13 @@ let convoLines: string[] = []
 let jumpToPrompt = false // FIRST open of a pane: land on the latest question
 // per-pane scroll memory: re-opening a pane resumes where you left off (not the latest
 // question). First-ever open this run has no entry -> jumpToPrompt. Reset on app reload.
-const paneMem = new Map<string, { scroll: number; atBottom: boolean; promptCount: number }>()
-let pendingRestore: { scroll: number; atBottom: boolean; promptCount: number } | null = null
+const paneMem = new Map<string, { scroll: number; atBottom: boolean; promptCount: number; scrolledAway: boolean }>()
+let pendingRestore: { scroll: number; atBottom: boolean; promptCount: number; scrolledAway: boolean } | null = null
 let convoPromptCount = 0 // # of user questions in the current conversation (for new-question detection)
 let convoEtag: string | null = null // last conversation ETag -> 304 skips re-fetch/parse
 let lastLiveSig = '' // SSE activity+menu signature -> skip redundant identical BLE pushes
 let lastPanesSig = '' // fleet-list signature -> skip redundant identical BLE pushes
+let userScrolled = false // did the user manually scroll this view? -> reopen resumes vs jumps
 function lastPromptIndex(lines: string[]): number {
   for (let i = lines.length - 1; i >= 0; i--) if (lines[i].startsWith('▶ ')) return i
   return 0
@@ -221,10 +225,12 @@ function applyConversation(turns: Turn[], working: boolean) {
     jumpToPrompt = false
     set({ working, atBottom: false, scroll: lastPromptIndex(convoLines) })
   } else if (pendingRestore) {
-    // re-opening: jump to the newest question if one arrived while away, else resume their spot
+    // re-opening: DEFAULT to the latest prompt. Only resume their saved spot if they had
+    // deliberately scrolled UP into the history AND no newer question arrived since.
     const r = pendingRestore; pendingRestore = null
-    if (convoPromptCount > r.promptCount) set({ working, atBottom: false, scroll: lastPromptIndex(convoLines) })
-    else set({ working, atBottom: r.atBottom, scroll: r.scroll })
+    const newQuestion = convoPromptCount > r.promptCount
+    if (r.scrolledAway && !newQuestion) set({ working, atBottom: r.atBottom, scroll: r.scroll })
+    else set({ working, atBottom: false, scroll: lastPromptIndex(convoLines) })
   } else {
     set({ working })
   }
@@ -261,12 +267,12 @@ export function openPane(n: string, label: string, isClaude: boolean, cwd: strin
   closeStream(); stopAnswers()
   convoLines = []
   set({ activePaneN: n, activeLabel: label, activeIsClaude: isClaude, activeCwd: cwd, listIndex,
-        lines: ['…'], menu: null, scroll: 0, atBottom: true, working: false, activity: '', phase: 'view', draft: '', draftKind: null, status: '' })
+        lines: ['…'], menu: null, scroll: 0, atBottom: true, working: false, activity: '', phase: 'view', draft: '', draftKind: null, status: '', typingText: '' })
   if (isClaude) {
     const mem = paneMem.get(n)
     jumpToPrompt = !mem            // first time -> latest question
     pendingRestore = mem ?? null   // returning -> resume where they left off
-    convoEtag = null; lastLiveSig = ''  // fresh pane -> force a full first fetch
+    convoEtag = null; lastLiveSig = ''; userScrolled = false  // fresh pane -> force a full first fetch
     const pull = () => paneConversation(n, convoEtag).then((r) => {
       if (state.activePaneN !== n || r.notModified) return  // 304 -> nothing changed
       convoEtag = r.etag
@@ -281,8 +287,12 @@ export function openPane(n: string, label: string, isClaude: boolean, cwd: strin
   }
 }
 export function closePane() {
-  // remember where they left this pane so re-opening resumes here (claude panes only)
-  if (state.activePaneN && state.activeIsClaude) paneMem.set(state.activePaneN, { scroll: state.scroll, atBottom: state.atBottom, promptCount: convoPromptCount })
+  // remember where they left this pane (claude panes only). "scrolled away" = they manually
+  // scrolled anywhere in this view; a reopen then RESUMES there. If they never scrolled (just
+  // read the jumped-to latest prompt), a reopen re-anchors on the latest prompt.
+  if (state.activePaneN && state.activeIsClaude) {
+    paneMem.set(state.activePaneN, { scroll: state.scroll, atBottom: state.atBottom, promptCount: convoPromptCount, scrolledAway: userScrolled })
+  }
   closeStream(); stopAnswers(); stopMic(); set({ activePaneN: null, phase: 'view' })
 }
 
@@ -299,6 +309,7 @@ let scrollTs = 0
 let scrollDir: 'up' | 'down' | null = null
 let scrollStep = SCROLL_BASE
 export function scrollDetail(dir: 'up' | 'down') {
+  userScrolled = true  // any manual scroll -> a reopen resumes here instead of jumping to latest
   const now = Date.now()
   const sustained = dir === scrollDir && now - scrollTs < SCROLL_WINDOW_MS
   scrollStep = sustained ? Math.min(SCROLL_MAX, scrollStep + SCROLL_GAIN) : SCROLL_BASE
@@ -342,11 +353,12 @@ function beginMic() {
 }
 
 export function startVoice() {
-  if (!state.voiceOn) { set({ status: 'voice off — set OPENAI_API_KEY on your backend' }); return }
-  set({ phase: 'listening', status: '' })
-  beginMic()
+  // "listening" = waiting for input; voice records only if the backend has a key, otherwise the
+  // phone shows a text box (submitTypedInput). Either way you can type on the phone.
+  set({ phase: 'listening', status: '', typingText: '' })
+  if (state.voiceOn) beginMic()
 }
-export function cancelInput() { stopMic(); pcm = []; set({ phase: 'view', status: '', draft: '', draftKind: null }) }
+export function cancelInput() { stopMic(); pcm = []; set({ phase: 'view', status: '', draft: '', draftKind: null, typingText: '' }) }
 export function redoVoice() { stopMic(); pcm = []; set({ draft: '', draftKind: null, status: '' }); startVoice() }
 
 export async function stopVoice() {
@@ -407,7 +419,7 @@ export async function sendNow() {
 
 // --- new session: pick a tag (window) -> speak a folder -> confirm -> spawn ---
 export async function startNewSession() {
-  set({ newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newStatus: 'loading…', newPaneN: null })
+  set({ newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newCreate: false, newStatus: 'loading…', newPaneN: null })
   try { set({ newTags: (await listWindows()).map((w) => w.name).filter((n) => n.trim()), newStatus: '' }) }
   catch { set({ newStatus: 'tags failed — tap ＋ to add a new one' }) }
 }
@@ -417,8 +429,46 @@ export function moveNewTag(dir: 'up' | 'down') {
   set({ newTagIndex: dir === 'up' ? Math.max(0, state.newTagIndex - 1) : Math.min(max, state.newTagIndex + 1) })
 }
 export function chooseNewTag() {
-  if (state.newTagIndex === 0) { set({ newPhase: 'tagvoice', newStatus: '' }); beginMic() }      // speak a new tag
-  else { set({ newTag: state.newTags[state.newTagIndex - 1], newPhase: 'listening', newStatus: '' }); beginMic() }
+  // speak the tag/folder if voice is on; otherwise type it on the phone (submitTypedInput)
+  if (state.newTagIndex === 0) { set({ newPhase: 'tagvoice', newStatus: '', typingText: '' }); if (state.voiceOn) beginMic() }
+  else { set({ newTag: state.newTags[state.newTagIndex - 1], newPhase: 'listening', newStatus: '', typingText: '' }); if (state.voiceOn) beginMic() }
+}
+
+// Phone-typed input — the alternative to voice at any "listening" point. Sends the typed text
+// exactly where transcribed text would go (reply / new-tag name / new-session folder).
+
+// Live phone typing — echoed to the glasses immediately. Typing ABANDONS any in-flight voice
+// recording (typed text wins). Available at every input point, even when voice is on.
+export function setTypingText(t: string) {
+  if (t && mic) { stopMic(); pcm = [] }  // started typing -> drop the voice recording
+  set({ typingText: t })
+}
+
+export async function submitTypedInput() {
+  const t = state.typingText.trim()
+  set({ typingText: '' })
+  if (!t) return
+  stopMic(); pcm = []
+  if (state.newPhase === 'tagvoice') {
+    set({ newTag: t.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20) || t, newPhase: 'listening', newStatus: '' })
+    if (state.voiceOn) beginMic()
+  } else if (state.newPhase === 'listening') {
+    set({ newText: t, newStatus: 'finding folder…' })
+    try {
+      const r = await resolveFolder(t)
+      if (r.found) set({ newPhase: 'confirm', newPath: r.path, newCreate: false, newStatus: '' })
+      else set({ newPhase: 'confirm', newPath: r.create_path, newCreate: true, newStatus: '' })  // offer to create it
+    } catch { set({ newStatus: 'lookup failed — type again' }) }
+  } else if (state.activePaneN && state.phase === 'listening') {
+    if (state.activeIsClaude) {
+      const n = state.activePaneN
+      set({ busy: true, status: 'sending…' })
+      try { await sendToPane(n, t, true); set({ phase: 'view', atBottom: true, working: true, busy: false, status: '', draft: '', draftKind: null }); buildView() }
+      catch { set({ busy: false, status: 'send failed — try again' }) }
+    } else {
+      await handleTranscript(t)  // shell pane: translate -> confirm review
+    }
+  }
 }
 
 // shared mic capture for the tag/folder voice steps; returns text or null (status set)
@@ -450,13 +500,13 @@ export async function stopNewTagVoice() {
 }
 export async function stopNewVoice() {
   stopMic()
-  const t = await captureNewVoice('listening', 'evenrealities')
+  const t = await captureNewVoice('listening', 'demo-project')
   if (t == null) return
   set({ newText: t, newStatus: 'finding folder…' })
   try {
     const r = await resolveFolder(t)
-    if (r.found) set({ newPhase: 'confirm', newPath: r.path, newStatus: '' })
-    else set({ newPhase: 'listening', newStatus: `no match for "${t}" — tap to retry` })
+    if (r.found) set({ newPhase: 'confirm', newPath: r.path, newCreate: false, newStatus: '' })
+    else set({ newPhase: 'confirm', newPath: r.create_path, newCreate: true, newStatus: '' })  // offer to create it
   } catch { set({ newPhase: 'listening', newStatus: 'lookup failed — tap to retry' }) }
 }
 export async function createNewSession() {
@@ -468,7 +518,7 @@ export async function createNewSession() {
     else set({ newPhase: 'confirm', newStatus: r.error || 'create failed' })
   } catch { set({ newPhase: 'confirm', newStatus: 'create failed' }) }
 }
-export function cancelNewSession() { stopMic(); pcm = []; set({ newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newStatus: '', newPaneN: null }) }
+export function cancelNewSession() { stopMic(); pcm = []; set({ newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newCreate: false, newStatus: '', newPaneN: null, typingText: '' }) }
 
 function pcmToWav(chunks: Float32Array[], sampleRate: number): Blob {
   const total = chunks.reduce((a, c) => a + c.length, 0)
