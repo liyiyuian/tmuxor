@@ -4,6 +4,7 @@
 import { listPanes, paneScreen, paneConversation, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
 import { GlassBridgeSource } from 'even-toolkit/stt'
 import { getTextWidth } from 'even-toolkit/pretext'
+import { getIdleSleepSec, getWakeOnChange } from './config'
 
 export type Phase = 'view' | 'listening' | 'confirm'
 const SLOTS = 9
@@ -23,12 +24,16 @@ export interface AppState {
   activeCwd: string
   lines: string[]
   menu: MenuState | null
+  menuPhase: 'read' | 'pick'  // permission prompt: READ the command first, then PICK the option
+  menuBody: string[]          // the command/diff/context being approved (pre-wrapped), for READ
+  menuScroll: number          // scroll position within menuBody
   scroll: number
   atBottom: boolean
   working: boolean
   activity: string
   voiceOn: boolean   // backend has an OpenAI key -> voice replies available
   voiceChecked: string[]  // when voice off, the locations the backend checked for a key
+  asleep: boolean    // glasses HUD blanked after inactivity (idle screen-sleep)
   phase: Phase
   draft: string
   draftKind: 'prompt' | 'command' | null
@@ -54,7 +59,7 @@ export interface AppState {
 let state: AppState = {
   panes: [], loading: true, error: null, listIndex: 0,
   activePaneN: null, activeLabel: '', activeIsClaude: false, activeCwd: '',
-  lines: [], menu: null, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [],
+  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], asleep: false,
   phase: 'view', draft: '', draftKind: null, busy: false, status: '', typingText: '', draftLines: [], confirmScroll: 0, lastCost: 0, totalCost: 0,
   newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newCreate: false, newStatus: '', newPaneN: null,
 }
@@ -63,13 +68,29 @@ export function getSnapshot() { return state }
 export function subscribe(l: () => void) { listeners.add(l); return () => { listeners.delete(l) } }
 function set(p: Partial<AppState>) { state = { ...state, ...p }; listeners.forEach((l) => l()) }
 
-const maxScroll = (n: number) => Math.max(0, n - SLOTS)
+const VIEW_SLOTS = 8  // conversation/shell view keeps a footer line -> 8 content lines (menu/confirm use SLOTS=9)
+const maxScroll = (n: number, vis: number = SLOTS) => Math.max(0, n - vis)
+
+// --- idle screen-sleep: blank the HUD after inactivity; wake on a gesture (AppGlasses bumps
+// lastActivity + swallows the waking gesture) or, if enabled, when a session changes state. ---
+let lastActivity = Date.now()
+let prevStatus = new Map<string, string>()
+export function noteActivity() { lastActivity = Date.now(); if (state.asleep) set({ asleep: false }) }
+export function idleTick() {
+  const sec = getIdleSleepSec()
+  if (sec > 0 && !state.asleep && Date.now() - lastActivity >= sec * 1000) set({ asleep: true })
+}
 
 const ORDER: Record<string, number> = { waiting: 0, working: 1, idle: 2, other: 3 }
 export async function refresh() {
   try {
     const panes = await listPanes(true)
     panes.sort((a, b) => (ORDER[a.status] ?? 9) - (ORDER[b.status] ?? 9) || a.window - b.window || a.pane_index - b.pane_index)
+    // wake the sleeping HUD when a session finishes or starts needing you (working -> idle/waiting)
+    if (getWakeOnChange() && prevStatus.size) {
+      for (const p of panes) if (prevStatus.get(p.n) === 'working' && (p.status === 'idle' || p.status === 'waiting')) { noteActivity(); break }
+    }
+    prevStatus = new Map(panes.map((p) => [p.n, p.status]))
     const sig = JSON.stringify(panes)
     if (sig !== lastPanesSig) { lastPanesSig = sig; set({ panes, loading: false, error: null }) }  // skip identical re-push
     else if (state.loading || state.error) set({ loading: false, error: null })
@@ -149,7 +170,7 @@ let answersTimer: ReturnType<typeof setInterval> | null = null
 function applyScreen(text: string) {
   const raw = text.split('\n')
   const lines = softWrap(cleanLines(raw))
-  const ms = maxScroll(lines.length)
+  const ms = maxScroll(lines.length, VIEW_SLOTS)
   set({ lines, menu: parseMenu(raw), scroll: state.atBottom ? ms : Math.min(state.scroll, ms) })
 }
 
@@ -214,7 +235,7 @@ function buildView() {
     raw.push(...wrapPx(state.activity ? '⋯ ' + state.activity : '⋯ working…'))
   }
   const lines = raw.length ? raw : ['(no replies yet)']
-  const ms = maxScroll(lines.length)
+  const ms = maxScroll(lines.length, VIEW_SLOTS)
   set({ lines, scroll: state.atBottom ? ms : Math.min(state.scroll, ms) })
 }
 function applyConversation(turns: Turn[], working: boolean) {
@@ -245,6 +266,14 @@ function cleanActivity(raw: string[]): string {
   if (!s) return ''
   return s.replace(/^[^\w]+/, '').split(/esc to interrupt/i)[0].replace(/[\s·,(|]+$/, '').trim()
 }
+// The command / diff / context a permission prompt is asking you to approve: the captured
+// screen minus TUI chrome, the option rows, and the navigation hint — i.e. everything you
+// need to READ before choosing. Pre-wrapped to the display width.
+function menuBodyLines(raw: string[]): string[] {
+  const optRe = /^\s*(❯|›|>|\*)?\s*\d+[.)]\s/
+  const navRe = /to navigate|to select|✔ ?submit|esc to cancel/i
+  return softWrap(cleanLines(raw).filter((l) => !optRe.test(l) && !navRe.test(l)))
+}
 function updateLive(text: string) {
   const raw = text.split('\n')
   const activity = cleanActivity(raw)
@@ -256,7 +285,13 @@ function updateLive(text: string) {
   if (sig === lastLiveSig) return
   lastLiveSig = sig
   const reRender = state.working && activity !== state.activity
-  set({ menu, activity })
+  const patch: Partial<AppState> = { menu, activity }
+  if (menu) {
+    patch.menuBody = menuBodyLines(raw)
+    // a NEW prompt (menu just appeared, or its question changed) -> start by READING from the top
+    if (!state.menu || state.menu.question !== menu.question) { patch.menuPhase = 'read'; patch.menuScroll = 0 }
+  }
+  set(patch)
   if (reRender) buildView()
 }
 
@@ -267,7 +302,7 @@ export function openPane(n: string, label: string, isClaude: boolean, cwd: strin
   closeStream(); stopAnswers()
   convoLines = []
   set({ activePaneN: n, activeLabel: label, activeIsClaude: isClaude, activeCwd: cwd, listIndex,
-        lines: ['…'], menu: null, scroll: 0, atBottom: true, working: false, activity: '', phase: 'view', draft: '', draftKind: null, status: '', typingText: '' })
+        lines: ['…'], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, scroll: 0, atBottom: true, working: false, activity: '', phase: 'view', draft: '', draftKind: null, status: '', typingText: '' })
   if (isClaude) {
     const mem = paneMem.get(n)
     jumpToPrompt = !mem            // first time -> latest question
@@ -314,9 +349,36 @@ export function scrollDetail(dir: 'up' | 'down') {
   const sustained = dir === scrollDir && now - scrollTs < SCROLL_WINDOW_MS
   scrollStep = sustained ? Math.min(SCROLL_MAX, scrollStep + SCROLL_GAIN) : SCROLL_BASE
   scrollTs = now; scrollDir = dir
-  const ms = maxScroll(state.lines.length)
+  const ms = maxScroll(state.lines.length, VIEW_SLOTS)
   const scroll = Math.max(0, Math.min(ms, state.scroll + (dir === 'up' ? -scrollStep : scrollStep)))
   set({ scroll, atBottom: scroll >= ms })
+}
+
+// Scroll the permission-prompt body (READ mode) — same velocity accel as scrollDetail.
+export function scrollMenu(dir: 'up' | 'down') {
+  const now = Date.now()
+  const sustained = dir === scrollDir && now - scrollTs < SCROLL_WINDOW_MS
+  scrollStep = sustained ? Math.min(SCROLL_MAX, scrollStep + SCROLL_GAIN) : SCROLL_BASE
+  scrollTs = now; scrollDir = dir
+  const ms = maxScroll(state.menuBody.length)
+  const menuScroll = Math.max(0, Math.min(ms, state.menuScroll + (dir === 'up' ? -scrollStep : scrollStep)))
+  set({ menuScroll })
+}
+// READ -> PICK once you've seen the command; double-tap in PICK returns to READ.
+export function menuToPick() { set({ menuPhase: 'pick' }) }
+export function menuToRead() { set({ menuPhase: 'read' }) }
+
+// Staged "return to live" for the conversation view (double-tap):
+//   scrolled up above the latest prompt -> jump to that prompt;
+//   below the prompt but not at the bottom -> jump to the bottom (live edge);
+//   already at the bottom -> return false so the caller leaves to the list.
+export function jumpToLatest(): boolean {
+  const ms = maxScroll(state.lines.length, VIEW_SLOTS)
+  if (state.atBottom || state.scroll >= ms) return false
+  const promptPos = lastPromptIndex(state.lines)
+  if (state.scroll < promptPos) set({ scroll: promptPos, atBottom: false })
+  else set({ scroll: ms, atBottom: true })
+  return true
 }
 
 // --- menu mode: drive the real TUI selection with keystrokes ---

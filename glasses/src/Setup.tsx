@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore, type CSSProperties } from 'react'
-import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath } from './config'
+import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange } from './config'
 import { listPanes } from './api'
 import { subscribe, getSnapshot } from './store'
 
@@ -24,6 +24,8 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [blob, setBlob] = useState('')
   const [projects, setProjects] = useState(getProjectsDir())
   const [keyPath, setKeyPath] = useState(getOpenaiKeyPath())
+  const [idleSec, setIdleSec] = useState(String(getIdleSleepSec()))
+  const [wakeChange, setWakeChange] = useState(getWakeOnChange())
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -45,6 +47,8 @@ export function Setup({ onSave }: { onSave: () => void }) {
     setConfig({ base: b, token: t })
     setProjectsDir(projects)
     setOpenaiKeyPath(keyPath)
+    setIdleSleepSec(Number(idleSec) || 0)
+    setWakeOnChange(wakeChange)
     try {
       await listPanes()
       onSave()
@@ -94,6 +98,13 @@ export function Setup({ onSave }: { onSave: () => void }) {
 
       <label style={label} htmlFor="cfg-keypath">OpenAI key file (optional) — for voice. Auto-found in env/~/.env; set a path only if elsewhere</label>
       <input id="cfg-keypath" style={input} value={keyPath} onChange={(e) => { setKeyPath(e.target.value); setErr('') }} placeholder="e.g. ~/.config/openai/key" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+
+      <label style={label} htmlFor="cfg-idle">Glasses screen on-time (seconds before it sleeps; 0 = always on)</label>
+      <input id="cfg-idle" type="number" inputMode="numeric" min="0" style={input} value={idleSec} onChange={(e) => { setIdleSec(e.target.value); setErr('') }} placeholder="0" />
+      <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input type="checkbox" checked={wakeChange} onChange={(e) => setWakeChange(e.target.checked)} />
+        Wake the glasses when a session finishes or needs input
+      </label>
 
       {err && <p style={{ color: '#ff8a8a', fontSize: 13 }}>{err}</p>}
       <button style={btn} onClick={save} disabled={busy}>{busy ? 'Connecting…' : 'Save & connect'}</button>

@@ -13,6 +13,10 @@ export interface Ctx {
   openPane: (n: string, label: string, isClaude: boolean, cwd: string, listIndex: number) => void
   closePane: () => void
   scrollDetail: (dir: 'up' | 'down') => void
+  scrollMenu: (dir: 'up' | 'down') => void
+  menuToPick: () => void
+  menuToRead: () => void
+  jumpToLatest: () => boolean
   startVoice: () => void
   stopVoice: () => void
   cancelInput: () => void
@@ -34,6 +38,7 @@ export interface Ctx {
 const GLYPH: Record<string, string> = { waiting: '!', working: '●', idle: '○', other: '·' }
 const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1) + '…')
 const DETAIL_SLOTS = 9
+const VIEW_SLOTS = 8  // conversation/shell view: header + 8 content + 1 footer (must match store VIEW_SLOTS)
 
 function wrap(s: string, n: number): string[] {
   const out: string[] = []
@@ -70,7 +75,7 @@ const listScreen: GlassScreen<AppState, Ctx> = {
       formatter: (it, i) =>
         truncateGlassText(`${i === nav.highlightedIndex ? '▶ ' : '   '}${it ? `${GLYPH[it.status] ?? '·'} ${it.tag}  ${it.label}` : '＋ new session'}`),
     })
-    return { lines: [...glassHeader(`PANELS ${s.panes.length} · p${page}/${pages} ◀◀=exit`, bar), ...list] }
+    return { lines: [...glassHeader(`PANELS ${s.panes.length} · p${page}/${pages}`, bar), ...list] }
   },
   action(a, nav, s, ctx) {
     const total = s.panes.length + 1 // indices 0..panes.length (row 0 = new-session)
@@ -117,11 +122,20 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
       if (s.status) out.push(line(s.status, 'meta')) // surface send/translate failures
       return { lines: out }
     }
-    // MENU MODE: pane is asking — render options as a selectable list. WINDOWED
-    // around the highlight so the selected row is always visible and every option
-    // is reachable (was capped at the first 8 with no scroll).
+    // MENU MODE: the pane is asking for approval. READ first (see the full command/diff,
+    // scrollable), then PICK the option — so you never approve something you can't see.
     if (s.menu) {
       const m = s.menu
+      if (s.menuPhase === 'read') {
+        const body = s.menuBody.length ? s.menuBody : [m.question || 'approve?']
+        const top = Math.max(0, Math.min(s.menuScroll, Math.max(0, body.length - DETAIL_SLOTS)))
+        const win = body.slice(top, top + DETAIL_SLOTS)
+        const up = top > 0 ? '▲' : ' '
+        const dn = top + DETAIL_SLOTS < body.length ? '▼' : ' '
+        const head = `approve? ${up}${dn}  swipe=read · tap=choose · ◀◀=back`
+        return { lines: [line(truncateGlassText(head), 'normal'), ...win.map((l) => line(truncateGlassText(l), 'meta'))] }
+      }
+      // PICK: choose the option (▶ marks the selection; columns mode flattens the style).
       const rows = menuRowCount(s)
       const hi = Math.max(0, Math.min(nav.highlightedIndex, rows - 1))
       const items = m.options.map((o, i) => ({
@@ -134,24 +148,28 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
       const win = items.slice(top, top + SLOTS)
       const up = top > 0 ? '▲' : ' '
       const dn = top + SLOTS < items.length ? '▼' : ' '
-      // arrows + position + gesture hints FIRST so they're never clipped; question tail clips if long
-      const head = `${up}${dn} ${hi + 1}/${items.length} tap=pick ◀◀=back  ${m.question || s.activeLabel}`
+      const head = `pick ${up}${dn} ${hi + 1}/${items.length}  tap=select · ◀◀=read${m.question ? '  ' + m.question : ''}`
       const out = [line(truncateGlassText(head), 'normal')]
       win.forEach((r) => out.push(line(truncateGlassText(`${r.sel ? '▶ ' : '   '}${r.text}`), r.sel ? 'inverted' : 'meta')))
       return { lines: out }
     }
-    // view: compact full-width content (1 header line + 9 content lines).
-    // claude pane => replies only; shell pane => live screen.
-    // a status line (e.g. the voice-off tap hint) takes one content slot when present.
-    const statusLine = s.status ? [line(s.status, 'meta')] : []
-    const slots = DETAIL_SLOTS - statusLine.length
+    // view: header (session title) + 8 content lines + a footer (gesture hints + scroll position).
+    // claude pane => replies only; shell pane => live screen. A transient status (send/translate
+    // error) rides in the footer so the scrollable content area stays a fixed 8 lines.
+    const slots = VIEW_SLOTS
     const top = Math.max(0, Math.min(s.scroll, Math.max(0, s.lines.length - slots)))
     const win = s.lines.slice(top, top + slots)
     const up = top > 0 ? '▲' : ' '
     const dn = top + slots < s.lines.length ? '▼' : ' '
     const wk = s.working ? ' ⋯' : ''
-    const talk = s.voiceOn ? 'tap=talk' : 'voice off'
-    return { lines: [line(`${title} ${up}${dn}${wk} ${talk} ◀◀`, 'normal'), ...win.map((l) => line(truncateGlassText(l), 'meta')), ...statusLine] }
+    const talk = s.voiceOn ? 'tap=talk' : 'tap=type'
+    const pos = s.lines.length > slots ? `  ${Math.min(top + slots, s.lines.length)}/${s.lines.length}` : ''
+    const footer = s.status || `${up}${dn} ${talk} · ◀◀${pos}`
+    return { lines: [
+      line(truncateGlassText(`${title}${wk}`), 'normal'),
+      ...win.map((l) => line(truncateGlassText(l), 'meta')),
+      line(truncateGlassText(footer), 'meta'),
+    ] }
   },
   action(a, nav, s, ctx) {
     if (s.phase === 'listening') {
@@ -165,8 +183,15 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
       else if (a.type === 'GO_BACK') ctx.redoVoice()                        // double-tap = back to recording (redo)
       return nav
     }
-    // MENU MODE: swipe highlights an option, tap picks/toggles, double-tap leaves
+    // MENU MODE: READ the command (swipe to scroll, tap to choose, double-tap to leave),
+    // then PICK (swipe highlights an option, tap picks/toggles, double-tap back to READ).
     if (s.menu) {
+      if (s.menuPhase === 'read') {
+        if (a.type === 'HIGHLIGHT_MOVE') { ctx.scrollMenu(a.direction); return nav }
+        if (a.type === 'SELECT_HIGHLIGHTED') { ctx.menuToPick(); return { ...nav, highlightedIndex: s.menu.cursorIndex } }
+        if (a.type === 'GO_BACK') { ctx.closePane(); return { screen: 'list', highlightedIndex: s.listIndex } }
+        return nav
+      }
       const rows = menuRowCount(s)
       if (a.type === 'HIGHLIGHT_MOVE') return { ...nav, highlightedIndex: moveHighlight(nav.highlightedIndex, a.direction, rows - 1) }
       if (a.type === 'SELECT_HIGHLIGHTED') {
@@ -174,13 +199,17 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
         else ctx.pickMenuOption(nav.highlightedIndex)
         return nav
       }
-      if (a.type === 'GO_BACK') { ctx.closePane(); return { screen: 'list', highlightedIndex: s.listIndex } }
+      if (a.type === 'GO_BACK') { ctx.menuToRead(); return nav }
       return nav
     }
     // view
     if (a.type === 'HIGHLIGHT_MOVE') { ctx.scrollDetail(a.direction); return nav }
     if (a.type === 'SELECT_HIGHLIGHTED') { ctx.startVoice(); return nav }
-    if (a.type === 'GO_BACK') { ctx.closePane(); return { screen: 'list', highlightedIndex: s.listIndex } }
+    // double-tap returns you toward the live edge first (latest prompt -> bottom), then leaves
+    if (a.type === 'GO_BACK') {
+      if (ctx.jumpToLatest()) return nav
+      ctx.closePane(); return { screen: 'list', highlightedIndex: s.listIndex }
+    }
     return nav
   },
 }
