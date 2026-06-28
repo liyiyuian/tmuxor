@@ -278,6 +278,9 @@ def _user_prompt(rec):
     if not isinstance(c, str):
         return ""
     c = re.sub(r"<system-reminder>.*?</system-reminder>", "", c, flags=re.S)
+    # background-task completions are injected as user-role messages, not typed prompts —
+    # drop the whole block so its <task-id>/<status>/… tags don't get flattened into soup
+    c = re.sub(r"<task-notification>.*?</task-notification>", "", c, flags=re.S)
     c = re.sub(r"<command-[a-z]+>.*?</command-[a-z]+>", "", c, flags=re.S)
     c = re.sub(r"<local-command-[a-z]+>.*?</local-command-[a-z]+>", "", c, flags=re.S)
     c = re.sub(r"</?[a-z-]+>", "", c)  # stray tags
