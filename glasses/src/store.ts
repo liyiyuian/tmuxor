@@ -236,7 +236,10 @@ function buildView() {
   }
   const lines = raw.length ? raw : ['(no replies yet)']
   const ms = maxScroll(lines.length, VIEW_SLOTS)
-  set({ lines, scroll: state.atBottom ? ms : Math.min(state.scroll, ms) })
+  // when not following the bottom, PRESERVE the scroll (incl. a jump-to-prompt over-scroll up to
+  // len-1) so a poll doesn't yank it back; short content (fits on screen) never scrolls.
+  const cap = lines.length > VIEW_SLOTS ? Math.max(0, lines.length - 1) : 0
+  set({ lines, scroll: state.atBottom ? ms : Math.min(state.scroll, cap) })
 }
 function applyConversation(turns: Turn[], working: boolean) {
   convoLines = renderTurns(turns)
@@ -373,9 +376,12 @@ export function menuToRead() { set({ menuPhase: 'read' }) }
 //   below the prompt but not at the bottom -> jump to the bottom (live edge);
 //   already at the bottom -> return false so the caller leaves to the list.
 export function jumpToLatest(): boolean {
+  if (state.atBottom) return false   // already following the live edge -> leave to the list
   const ms = maxScroll(state.lines.length, VIEW_SLOTS)
-  if (state.atBottom || state.scroll >= ms) return false
   const promptPos = lastPromptIndex(state.lines)
+  // scrolled up ABOVE the latest prompt -> bring that prompt to the TOP. scroll can exceed the
+  // normal bottom (ms) here so even a short last exchange lands prompt-first; the view display +
+  // buildView allow this over-scroll. Otherwise jump to the live edge (bottom).
   if (state.scroll < promptPos) set({ scroll: promptPos, atBottom: false })
   else set({ scroll: ms, atBottom: true })
   return true

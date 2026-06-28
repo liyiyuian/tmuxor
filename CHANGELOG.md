@@ -6,6 +6,11 @@ project memory; this file is the short "what changed" for each build.
 > Builds: TMUXor ships as a single **public** `.ehpk` — it bakes no secrets, so every user
 > enters their own backend URL + token on the app's Setup screen.
 
+## 1.0.2 — 2026-06-28
+- **Fix: double-tap lands on the latest prompt.** When you'd scrolled up, double-tap jumped to the
+  bottom instead of the recent prompt whenever that prompt was near the end of the conversation.
+  Now it brings the prompt to the top first, then the bottom, then back to the list.
+
 ## 1.0.1 — 2026-06-28
 - **Idle screen-sleep** — the glasses HUD blanks after a configurable idle time so there's no
   constant display in your view. Set the on-time in Setup (seconds; 0 = always on). It wakes on

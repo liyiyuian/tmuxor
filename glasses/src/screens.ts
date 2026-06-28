@@ -157,7 +157,9 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
     // claude pane => replies only; shell pane => live screen. A transient status (send/translate
     // error) rides in the footer so the scrollable content area stays a fixed 8 lines.
     const slots = VIEW_SLOTS
-    const top = Math.max(0, Math.min(s.scroll, Math.max(0, s.lines.length - slots)))
+    // allow top up to len-1 (not just len-slots) so a jump-to-prompt can place the latest prompt
+    // at the TOP even when it's within the last few lines (window then shows it + blanks below)
+    const top = Math.max(0, Math.min(s.scroll, Math.max(0, s.lines.length - 1)))
     const win = s.lines.slice(top, top + slots)
     const up = top > 0 ? '▲' : ' '
     const dn = top + slots < s.lines.length ? '▼' : ' '
