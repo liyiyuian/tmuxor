@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 5173 --host",
+    "dev:demo": "VITE_PERSONAL=1 VITE_CONDUCTOR_API=http://127.0.0.1:8799 VITE_CONDUCTOR_TOKEN=demo vite --port 5173 --host",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "sim": "evenhub-simulator http://localhost:5173"
