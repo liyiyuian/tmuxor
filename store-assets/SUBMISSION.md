@@ -25,10 +25,10 @@ this folder. Agent supplies the text/images; you do the portal steps.
 1. `01-fleet-list.png` — your sessions, sorted by what needs you (▶ marks the selected row)
 2. `02-conversation.png` — read a session's real prompts + replies (footer = hints + position)
 3. `03-approve-command.png` — read the full command on the glasses before you approve it
-4. `04-voice-review.png` — review the transcription (with cost) before sending
-5. `05-new-session.png` — start a new session: pick a project tag
+4. `04-new-session.png` — start a new session: pick a project tag
 
-*(All demo/fake data — no real sessions.)*
+*(All 576×288, captured from the Even Hub simulator's automation API with DEMO/fake data — never
+real sessions. Regenerate with `tools/capture-screenshots.sh`.)*
 
 ## 3. Permissions (auto-populated from the .ehpk — justifications if asked)
 - **network** — Connects only to the user's own TMUXor backend over Tailscale (whitelisted to
