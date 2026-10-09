@@ -105,9 +105,9 @@ export function App() {
   useGlasses<AppState>({
     appName: 'G2C',
     getSnapshot,
-    // column 1 = the whole screen (flush-left, no 2-space prefix); column 2 overlaps its right side
-    // and carries only the list's preview (blank on every other screen — see listPreview).
-    columns: [{ x: 0, w: 576 }, { x: 300, w: 276 }],
+    // column 1 = the whole screen (flush-left, no 2-space prefix); column 2 overlaps its right two
+    // thirds and carries only the list's preview (blank on every other screen — see listPreview).
+    columns: [{ x: 0, w: 576 }, { x: 192, w: 384 }],
     // asleep -> push a blank (single space) so the HUD goes dark; wake on the next gesture.
     toDisplayData: (s, nav) => (s.asleep ? { lines: [line(' ', 'meta')] } : router.toDisplayData(s, nav)),
     toColumns: (s, nav) => (s.asleep ? { columns: [' ', ' '] } : { columns: [router.toDisplayData(s, nav).lines.map((l) => l.text).join('\n'), listPreview(s, nav.screen)] }),

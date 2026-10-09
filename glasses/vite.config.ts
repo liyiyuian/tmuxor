@@ -18,8 +18,13 @@ const stripDeadUrls: Plugin = {
 }
 
 export default defineConfig({
-  // the build's own version, so an error report says which build it came from
-  define: { __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync('app.json', 'utf8')).version) },
+  // the build's own version and build time: an error report says which build it came from, and the
+  // phone screen shows it — the version alone can't tell two builds apart while it is held between
+  // submissions
+  define: {
+    __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync('app.json', 'utf8')).version),
+    __BUILD__: JSON.stringify(new Date().toLocaleString('sv-SE').slice(5, 16)),  // "MM-DD HH:mm", local time
+  },
   plugins: [react(), stripDeadUrls],
   base: './', // relative asset paths for the packaged webview
   server: { host: true, port: 5173 },

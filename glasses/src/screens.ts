@@ -5,9 +5,9 @@ import { buildScrollableList } from 'even-toolkit/glass-display-builders'
 import { moveHighlight } from 'even-toolkit/glass-nav'
 import { truncateGlassText, getTextWidth } from 'even-toolkit/pretext'
 import { createGlassScreenRouter, type GlassScreen } from 'even-toolkit/glass-screen-router'
-import { listRows, listRow, type AppState } from './store'
+import { listRows, listRow, PREVIEW_PX, NO_PREVIEW, type AppState } from './store'
 import type { Pane } from './api'
-import { isConfigured } from './config'
+import { isConfigured, getPreview } from './config'
 
 export interface Ctx {
   exitApp: () => void
@@ -40,9 +40,13 @@ export interface Ctx {
 
 const GLYPH: Record<string, string> = { waiting: '!', working: '●', idle: '○', other: '·' }
 const PIN = '★'  // marks a pinned session (list row + open-session header)
-// The list screen is two columns sharing the display: rows on the left (clipped to LIST_PX), a preview
-// of the highlighted session on the right (AppGlasses `columns` puts it at x=300; store PREVIEW_PX).
-const LIST_PX = 286
+// The list screen is two columns sharing the display: rows in the left third (clipped to listPx), a
+// preview panel in the right two thirds (listPreview; AppGlasses columns). With the preview switched
+// off on the phone the rows get the whole width.
+const listPx = () => (getPreview() ? 172 : 548)
+// A solid rule under the panel's title. Box-drawing ─ joins into one line in the glasses font; no
+// glyph joins VERTICALLY (every one is shorter than the line pitch — a column of | reads as dashes).
+const RULE = (() => { let r = ''; while (getTextWidth(r + '─') <= PREVIEW_PX) r += '─'; return r })()
 const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1) + '…')
 const DETAIL_SLOTS = 9
 const VIEW_SLOTS = 9  // conversation/shell view: header (with scroll/position) + 9 content, no footer (must match store VIEW_SLOTS)
@@ -123,10 +127,10 @@ const listScreen: GlassScreen<AppState, Ctx> = {
       highlightedIndex: hi,
       maxVisible: VIS,
       // tag (project) first — it's the disambiguator across ~35 sessions; only the long title clips
-      // (to LIST_PX, leaving the right side for the preview). ▶ marks the selected row by TEXT (columns
+      // (to listPx, leaving the right side for the preview). ▶ marks the selected row by TEXT (columns
       // page mode flattens the line highlight style); the 3-space else keeps rows aligned.
       formatter: (it, i) =>
-        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${it.pinned ? PIN : ''}${it.done ? '»' : (GLYPH[it.status] ?? '·')} ${it.tag}  ${it.label}` : '＋ new session'}`, LIST_PX),
+        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${it.pinned ? PIN : ''}${it.done ? '»' : (GLYPH[it.status] ?? '·')} ${it.tag}  ${it.label}` : '＋ new session'}`, listPx()),
     })
     // The header must stay ONE line (a wrapped header pushes the list past the 10-line screen): with
     // every count in double digits the full bar is ~600px, so drop the least urgent counts to fit.
@@ -162,12 +166,19 @@ const listScreen: GlassScreen<AppState, Ctx> = {
 // The second column: a preview of the highlighted session beside the list rows. Both columns share
 // the display, so EVERY other screen must send a blank here or the last preview stays drawn over it.
 export function listPreview(s: AppState, screen: string): string {
-  if (screen !== 'list' || !isConfigured() || s.loading || s.error) return ' '
+  // nothing while the highlight is moving (NO_PREVIEW): the panel is drawn once, after the pause
+  if (screen !== 'list' || !getPreview() || !isConfigured() || s.loading || s.error || s.preview === NO_PREVIEW) return ' '
   const p = s.panes[listRow(s)]
-  const body = !p ? ['Start a new Claude session', 'in a project folder.']
-    : [...(p.status === 'waiting' ? ['! needs you — tap to read'] : []), ...s.preview]
-  // two blank lines keep it clear of the header + rule, which run the full width
-  return ['', '', ...body.slice(0, 8).map((l) => '| ' + l)].join('\n')
+  // the title carries the full name — the row beside it is clipped to a third of the screen
+  const title = truncateGlassText(p ? `${p.tag}  ${p.label}` : 'New session', PREVIEW_PX)
+  // 6 lines under the rule. The "needs you" notice takes one; if the preview then no longer fits,
+  // keep its first line (the request) and the END of the reply — on a session that needs you, the
+  // end is the question.
+  const wait = !!p && p.status === 'waiting', rows = wait ? 5 : 6
+  const pv = s.preview.length > rows ? [s.preview[0], ...s.preview.slice(1 - rows)] : s.preview
+  const body = !p ? ['Start a new Claude session', 'in a project folder.'] : [...(wait ? ['! needs you — tap to read'] : []), ...pv]
+  // two blank lines keep it clear of the header, which runs the full width
+  return ['', '', title, RULE, ...body].join('\n')
 }
 
 const detailScreen: GlassScreen<AppState, Ctx> = {

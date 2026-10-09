@@ -26,7 +26,7 @@ function reportClientError(kind: string, err: unknown) {
   if (reports >= REPORT_CAP || now - (reportedAt.get(head) ?? -Infinity) < 60_000) return
   reportedAt.set(head, now)
   reports++
-  const msg = `${head}\n${(e && e.stack) || ''}\n[error #${errorCount}, ${Math.round((now - launchedAt) / 1000)}s after launch, build ${__APP_VERSION__}, ${navigator.userAgent}]`.slice(0, 4000)
+  const msg = `${head}\n${(e && e.stack) || ''}\n[error #${errorCount}, ${Math.round((now - launchedAt) / 1000)}s after launch, build ${__APP_VERSION__} (${__BUILD__}), ${navigator.userAgent}]`.slice(0, 4000)
   try { localStorage.setItem('conductor.lastError', msg) } catch { /* quota */ }
   try {
     const { base, token } = getConfig()

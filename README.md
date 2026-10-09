@@ -84,7 +84,7 @@ replies — everything else happens on the glasses with **three gestures**, reas
   `tag  title` (the tag is the tmux window / Herdr workspace / project). Swipe to scroll
   (**▶** marks the selected row — it follows the session, so a re-sort never moves it onto a
   different one), tap to open. The list opens on the session that most needs you; the last row,
-  **＋ new session**, is one swipe up from the top. The right half of the screen **previews** the
+  **＋ new session**, is one swipe up from the top. The right two thirds of the screen **previews** the
   highlighted session — your last prompt and the end of its reply — so you can triage without
   opening each one. *Optional:* add your own Anthropic API key to the backend and switch on
   **AI summaries** in the app, and that preview becomes a one-line Claude Haiku summary (off by

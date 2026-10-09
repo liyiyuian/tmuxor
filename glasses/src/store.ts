@@ -4,7 +4,7 @@
 import { listPanes, paneScreen, paneConversation, paneSummary, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
 import { GlassBridgeSource } from 'even-toolkit/stt'
 import { getTextWidth, truncateGlassText } from 'even-toolkit/pretext'
-import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins, getAiSummary } from './config'
+import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins, getAiSummary, getPreview } from './config'
 
 export type Phase = 'view' | 'listening' | 'confirm'
 const SLOTS = 9
@@ -123,9 +123,15 @@ function withSel(panes: Pane[]): Partial<AppState> {
 // Shown from a per-session cache, then re-checked (cheap: etag) — once the swipes settle, and on
 // every list poll. It asks the conversation endpoint for just the tail (`?tail=1`); a backend that
 // predates that returns the whole conversation, which still works.
-const PREVIEW_PX = 236  // text width of the preview column (screens.ts listPreview / AppGlasses columns)
-const PREVIEW_ROWS = 8  // the lines beside the list rows, under the header
-const NO_PREVIEW: string[] = []
+export const PREVIEW_PX = 360  // text width of the preview column (screens.ts listPreview / AppGlasses columns: 384 wide)
+const PREVIEW_ROWS = 6  // content lines under the panel's title + rule (screens.ts listPreview)
+// Two different "nothing": NO_PREVIEW = the highlight is moving, draw no panel at all (so a swipe
+// costs the glasses one write); SETTLED = the panel is up for this row, with nothing to show in it.
+export const NO_PREVIEW: string[] = []
+const SETTLED: string[] = []
+// A page nobody has touched for this long makes no model calls: the Even app can keep a closed
+// page alive in the background, still parked on a row and still polling.
+const SUMMARY_IDLE_MS = 10 * 60_000
 // per session: the prompt line (`head`), the reply tail (`raw`), what is on screen (`lines`), and —
 // when AI summaries are on — the transcript state a summary was last settled for (`sumFor`), so the
 // backend is asked once per state.
@@ -158,7 +164,10 @@ function previewOf(turns: Turn[], working: boolean): { head: string[]; raw: stri
 const SETTLE_MS = 600  // longer than the fastest swipe cadence (even-toolkit drops same-direction repeats inside 350ms)
 let previewMovedAt = 0
 let previewAbort: AbortController | null = null
+// the phone's "preview" switch changed: redraw the list (rows widen/narrow) and the panel now
+export function previewSettingChanged() { set({ preview: NO_PREVIEW }); showPreview(true) }
 function showPreview(moved = false) {
+  if (!getPreview()) return  // turned off on the phone: no panel, no downloads, no summaries
   const now = Date.now()
   if (moved) previewMovedAt = now
   else if (now - previewMovedAt < SETTLE_MS) return  // a swipe's own timer is pending — don't pre-empt it
@@ -169,7 +178,7 @@ function showPreview(moved = false) {
   previewTimer = setTimeout(async () => {
     // from the cache first (instant), then check the backend for anything newer
     let c = previewCache.get(n)
-    if (state.listSel === n && state.preview !== (c?.lines ?? NO_PREVIEW)) set({ preview: c?.lines ?? NO_PREVIEW })
+    if (state.listSel === n && state.preview !== (c?.lines ?? SETTLED)) set({ preview: c?.lines ?? SETTLED })
     // only while the list is on screen, and only for a session that is on it (a request for a pane
     // that is gone would return a 4xx)
     if (!isConfigured() || state.activePaneN || state.asleep || !state.panes.some((p) => p.n === n)) return
@@ -186,7 +195,7 @@ function showPreview(moved = false) {
       // Opt-in AI summary (the user's own Anthropic key, on their backend): replaces the reply tail
       // with one status line, marked ~. Asked once per transcript state, never while the session
       // is still working, and only of a backend that says it can (so an older one gets no request).
-      if (!c || !c.etag || c.working || c.sumFor === c.etag || !getAiSummary() || !state.canSummarize) return
+      if (!c || !c.etag || c.working || c.sumFor === c.etag || !getAiSummary() || !state.canSummarize || Date.now() - lastActivity > SUMMARY_IDLE_MS) return
       const s = await paneSummary(n)
       if (gen !== fleetGen || s.etag !== c.etag) return
       if (s.pending) {  // being written (a couple of seconds) -> look again soon, if still on this row

@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getSource, setSource, getAiSummary, setAiSummary } from './config'
+import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getSource, setSource, getAiSummary, setAiSummary, getPreview, setPreview } from './config'
 import { listPanes, health } from './api'
-import { subscribe, getSnapshot, resetForSourceChange, togglePin } from './store'
+import { subscribe, getSnapshot, resetForSourceChange, togglePin, previewSettingChanged } from './store'
 
 // Decode the `tmuxor:<base64>` blob that install.sh prints into a config.
 function decodeBlob(text: string): { base: string; token: string } | null {
@@ -30,6 +30,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [idleSec, setIdleSec] = useState(String(getIdleSleepSec()))
   const [wakeChange, setWakeChange] = useState(getWakeOnChange())
   const [aiSummary, setAi] = useState(getAiSummary())
+  const [preview, setPv] = useState(getPreview())
   const [source, setSrc] = useState(getSource())
   const [sources, setSources] = useState<string[]>([])   // what the backend can serve
   const [defSource, setDefSource] = useState('')          // the backend's own default
@@ -184,7 +185,13 @@ export function Setup({ onSave }: { onSave: () => void }) {
           Wake the glasses when a session finishes or needs input
         </label>
 
-        {live.canSummarize && (
+        <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* applies at once, like the summary switch below */}
+          <input type="checkbox" checked={preview} onChange={(e) => { setPv(e.target.checked); setPreview(e.target.checked); previewSettingChanged() }} />
+          Show a preview of the highlighted session beside the list
+        </label>
+
+        {live.canSummarize && preview && (
           <>
             <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
               {/* applies at once (like the backend picker): the form is folded away once connected, so a box that waited for Save would be easy to tick and never apply */}
@@ -201,6 +208,8 @@ export function Setup({ onSave }: { onSave: () => void }) {
         {err && <p style={{ color: '#ff8a8a', fontSize: 13 }}>{err}</p>}
         <button style={btn} onClick={save} disabled={busy}>{busy ? 'Connecting…' : 'Save & connect'}</button>
       </details>
+      {/* which build this is — the version number is held between submissions, so it can't say */}
+      <p style={{ color: '#6f8a7b', fontSize: 11, margin: '18px 0 0', textAlign: 'center' }}>G2C {__APP_VERSION__} · build {__BUILD__}</p>
     </div>
   )
 }

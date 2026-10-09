@@ -7,10 +7,13 @@ project memory; this file is the short "what changed" for each build.
 > enters their own backend URL + token on the app's Setup screen.
 
 ## 1.0.39 — 2026-10-09
-- **Preview beside the list.** The right half of the session list now shows the highlighted
-  session's latest exchange — your last prompt and the end of the reply — so you can tell what a
-  session is doing, or what it concluded, without opening it. A session that needs you says so.
-  Session names are clipped to make room. Nothing is drawn or fetched while you are still swiping:
+- **Preview beside the list.** The right two thirds of the session list is now a panel for the
+  highlighted session: its full name, a rule, then its latest exchange — your last prompt and the
+  end of the reply — so you can tell what a session is doing, or what it concluded, without opening
+  it. A session that needs you says so. Session names in the list are clipped to make room (the
+  panel's title shows the full name). Don't want it? Switch off "Show a preview of the highlighted
+  session beside the list" in the phone's settings and the list gets the whole width back, with no
+  extra requests. Nothing is drawn or fetched while you are still swiping:
   the preview appears when you pause (about half a second), so scrolling costs the glasses no more
   than it did before. With the updated backend the preview downloads about 2 KB instead of the whole
   conversation; an older backend still works, it just transfers more.
@@ -24,6 +27,18 @@ project memory; this file is the short "what changed" for each build.
   once per change, never while the session is still working, and never again for a transcript that
   was declined or failed. Needs the updated backend (`conductor_api.py`); without it, or with the
   switch off, you get the plain preview and no extra requests.
+- **Fix: an error could be reported thousands of times a minute.** The Even app's web view reports
+  every network request a plugin makes to the host app; when that host call fails, the failure is
+  itself an error — and this app's error reporter answered each one with another network request.
+  On one phone that looped about 9,000 times a minute, from every copy of the page the Even app had
+  kept alive. The reporter now sends at most one report per distinct error per minute and 20 per
+  launch, and the backend counts repeats instead of logging each one. (Published 1.0.36–1.0.37 have
+  the uncapped reporter.)
+- **Fix: the preview and summaries treated Claude Code's auto-compaction text as your request.**
+  After a session compacted, the preview's first line read "This session is being continued…" and
+  the summary was asked about that text. The backend now skips those records (also in the reading
+  view), and sends at most the first 2,000 characters of a request to the model.
+- **Which build is this?** The phone screen now shows the version and build time at the bottom.
 - **Fix: the "working" indicator was invisible.** It used a glyph the glasses' font doesn't have,
   so it drew blank in the session header and on the live activity line. It is now ●, the same
   mark the list uses for a working session.
