@@ -6,6 +6,10 @@
 # 576×288 glasses framebuffer. NEVER point this at a real backend — demo/fake data only.
 #
 #   Usage:  bash tools/capture-screenshots.sh
+#   Run it as its OWN command (not chained after other commands): the cleanup below uses `pkill -f`
+#   patterns, and `pkill -f` also matches a calling shell whose command line contains one of those
+#   strings — the shell dies (exit 144) while this script keeps running, and a second run started on
+#   top of it produces wrong screenshots. Always look at the PNGs before committing them.
 #   Output: store-assets/screenshots/0{1..4}-*.png  (all exactly 576×288)
 set -u
 cd "$(dirname "$0")/../glasses"
