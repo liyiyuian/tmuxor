@@ -303,8 +303,9 @@ def _strip_markdown(t):
 
 def _user_prompt(rec):
     """The real typed prompt from a user record, or '' for tool-results / meta /
-    system-reminders / slash-command plumbing."""
-    if rec.get("isMeta"):
+    system-reminders / slash-command plumbing / an auto-compaction summary (Claude Code writes
+    that as a user record — 10-30 KB the user never typed)."""
+    if rec.get("isMeta") or rec.get("isCompactSummary"):
         return ""
     c = rec.get("message", {}).get("content", "")
     if isinstance(c, list):

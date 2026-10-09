@@ -152,6 +152,7 @@ def translate_command(description, cwd):
 
 SUMMARY_MODEL = os.environ.get("CONDUCTOR_SUMMARY_MODEL", "claude-haiku-5-5")
 SUMMARY_MAX_CHARS = 6000  # of the END of the reply sent to the model — bounds cost; the conclusion is what matters
+SUMMARY_PROMPT_CHARS = 2000  # of the START of the request — a pasted log must not be sent whole
 SUMMARY_SYSTEM = (
     "You write the status line for one coding-agent session, shown on a tiny heads-up display that "
     "fits about 24 words. You are given the user's latest request and the agent's reply to it. "
@@ -191,7 +192,7 @@ def summarize_exchange(prompt, reply):
         "max_tokens": 1024,
         "output_config": {"effort": "low"},
         "system": SUMMARY_SYSTEM,
-        "messages": [{"role": "user", "content": f"<request>\n{prompt}\n</request>\n\n<reply>\n{reply}\n</reply>"}],
+        "messages": [{"role": "user", "content": (f"<request>\n{prompt}\n</request>\n\n" if prompt else "") + f"<reply>\n{reply}\n</reply>"}],
     }
     req = urllib.request.Request(
         ANTHROPIC_URL, data=json.dumps(payload).encode(),
@@ -261,7 +262,7 @@ def _summarize_job(pid, jsonl, etag):
         u = max((i for i, t in enumerate(turns) if t["role"] == "user"), default=-1)
         reply = "\n".join(t["text"] for t in turns[u + 1:] if t["role"] == "assistant").strip()
         if reply:
-            result = summarize_exchange(turns[u]["text"] if u >= 0 else "", reply[-SUMMARY_MAX_CHARS:])
+            result = summarize_exchange(turns[u]["text"][:SUMMARY_PROMPT_CHARS] if u >= 0 else "", reply[-SUMMARY_MAX_CHARS:])
     except urllib.error.HTTPError as e:
         if e.code == 429 or e.code >= 500:   # transient: try this transcript again, but not for a minute
             keep, _sum_retry_at = False, time.time() + 60
