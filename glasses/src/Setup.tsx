@@ -187,7 +187,8 @@ export function Setup({ onSave }: { onSave: () => void }) {
         {live.canSummarize && (
           <>
             <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input type="checkbox" checked={aiSummary} onChange={(e) => setAi(e.target.checked)} />
+              {/* applies at once (like the backend picker): the form is folded away once connected, so a box that waited for Save would be easy to tick and never apply */}
+              <input type="checkbox" checked={aiSummary} onChange={(e) => { setAi(e.target.checked); setAiSummary(e.target.checked) }} />
               Summarize list previews with Claude Haiku (uses your Anthropic API key)
             </label>
             <p style={{ color: '#6f8a7b', fontSize: 12, margin: '2px 0 0', lineHeight: 1.4 }}>
