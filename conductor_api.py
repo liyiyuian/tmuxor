@@ -643,7 +643,9 @@ class Handler(BaseHTTPRequestHandler):
             # the glasses app POSTs uncaught JS errors here so they land in the service journal
             # (journalctl --user -u tmux-conductor) — turns a mysterious app "quit" into a readable
             # error+stack. Just logs a bounded string; no execution, no injection surface.
-            _clientlog(str(body.get("msg", ""))[:4000])
+            # who sent it (part of the dedupe key, so a different build/page shows up as a new report)
+            who = " ".join(f"{k}={self.headers.get(k, '')[:200]!r}" for k in ("User-Agent", "Origin", "Referer"))
+            _clientlog(str(body.get("msg", ""))[:4000] + f"\n[from {who}]")
             return self._json(200, {"ok": True})
         if path == "/api/translate":
             desc = body.get("description", "")
