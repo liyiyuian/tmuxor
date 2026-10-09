@@ -106,7 +106,7 @@ export function listRow(s: AppState): number {
 }
 export function selectRow(n: string) {
   if (n !== state.listSel) set({ listSel: n, listPos: Math.max(0, listRows(state).indexOf(n)) })
-  showPreview()
+  showPreview(true)
 }
 // A new pane list: keep the selection on a row that exists — the same session if it is still
 // listed, else whatever now sits on the row it was on — so `listSel` always names the highlighted
@@ -120,9 +120,9 @@ function withSel(panes: Pane[]): Partial<AppState> {
 }
 
 // --- list preview: the highlighted session's latest exchange, drawn beside the list ---
-// Shown from a per-session cache at once, then re-checked (cheap: etag) once the swipes settle and
-// on every list poll. The settle delay is longer than the fastest swipe cadence (even-toolkit drops
-// same-direction repeats inside 350ms), so scrolling down the list costs one request, not one per row. Frontend-only — it reuses the conversation endpoint, so no backend update.
+// Shown from a per-session cache, then re-checked (cheap: etag) — once the swipes settle, and on
+// every list poll. It asks the conversation endpoint for just the tail (`?tail=1`); a backend that
+// predates that returns the whole conversation, which still works.
 const PREVIEW_PX = 236  // text width of the preview column (screens.ts listPreview / AppGlasses columns)
 const PREVIEW_ROWS = 8  // the lines beside the list rows, under the header
 const NO_PREVIEW: string[] = []
@@ -152,20 +152,31 @@ function previewOf(turns: Turn[], working: boolean): { head: string[]; raw: stri
   }
   return { head, raw: reply }
 }
-function showPreview() {
-  const n = state.listSel
-  const lines = previewCache.get(n)?.lines ?? NO_PREVIEW
-  if (lines !== state.preview) set({ preview: lines })
+// `moved` = the highlight just changed (a swipe). While swipes are arriving nothing is drawn or
+// fetched: the preview is blanked once and everything waits for a pause, so a swipe costs the
+// glasses the same single write it did before the preview existed.
+const SETTLE_MS = 600  // longer than the fastest swipe cadence (even-toolkit drops same-direction repeats inside 350ms)
+let previewMovedAt = 0
+let previewAbort: AbortController | null = null
+function showPreview(moved = false) {
+  const now = Date.now()
+  if (moved) previewMovedAt = now
+  else if (now - previewMovedAt < SETTLE_MS) return  // a swipe's own timer is pending — don't pre-empt it
   if (previewTimer) clearTimeout(previewTimer)
-  // only while the list is on screen, and only for a session that is on it (a request for a pane
-  // that is gone would return a 4xx)
-  if (!isConfigured() || state.activePaneN || state.asleep || !state.panes.some((p) => p.n === n)) return
-  const gen = fleetGen
+  previewAbort?.abort()  // a newer row supersedes a download still in flight
+  if (moved && state.preview !== NO_PREVIEW) set({ preview: NO_PREVIEW })
+  const n = state.listSel, gen = fleetGen
   previewTimer = setTimeout(async () => {
+    // from the cache first (instant), then check the backend for anything newer
+    let c = previewCache.get(n)
+    if (state.listSel === n && state.preview !== (c?.lines ?? NO_PREVIEW)) set({ preview: c?.lines ?? NO_PREVIEW })
+    // only while the list is on screen, and only for a session that is on it (a request for a pane
+    // that is gone would return a 4xx)
+    if (!isConfigured() || state.activePaneN || state.asleep || !state.panes.some((p) => p.n === n)) return
+    const ac = (previewAbort = new AbortController())
     try {
-      const r = await paneConversation(n, previewCache.get(n)?.etag)
+      const r = await paneConversation(n, c?.etag, { tail: true, signal: ac.signal })
       if (gen !== fleetGen) return
-      let c = previewCache.get(n)
       if (!r.notModified) {
         const { head, raw } = previewOf(r.turns, r.working)
         c = { etag: r.etag, head, raw, working: r.working, lines: [...head, ...raw] }
@@ -187,8 +198,8 @@ function showPreview() {
         c.lines = [...c.head, ...wrapPx('~ ' + s.summary, '', PREVIEW_PX).slice(0, PREVIEW_ROWS - c.head.length)]
         if (state.listSel === n) set({ preview: c.lines })
       }
-    } catch { /* offline, or the request failed: the plain preview stays */ }
-  }, 600)
+    } catch { /* offline, superseded, or the request failed: what is shown stays */ }
+  }, moved ? SETTLE_MS : 0)
 }
 
 const ORDER: Record<string, number> = { waiting: 0, working: 1, done: 2, idle: 3, other: 4 }

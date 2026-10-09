@@ -11,7 +11,7 @@ Endpoints:
   GET  /api/health
   GET  /api/panes[?claude_only=1]                 -> {panes:[...]}
   GET  /api/panes/<n>/screen[?lines=200]          -> {id, text}
-  GET  /api/panes/<n>/conversation                -> {id, turns:[{role,text}...], working}
+  GET  /api/panes/<n>/conversation[?tail=1]       -> {id, turns:[{role,text}...], working}  (tail = latest exchange only)
   GET  /api/panes/<n>/summary                     -> {summary, etag} | {pending:true} (opt-in AI summary)
   GET  /api/windows                               -> {windows:[{index,name,panes}]}
   POST /api/panes/<n>/send  {text, submit=true}   -> {ok, pane, submitted}
@@ -229,6 +229,25 @@ def _transcript(src, p):
         except OSError:
             pass
     return jsonl, working, etag
+
+
+PREVIEW_TAIL_CHARS = 2000  # of the END of the reply; the glasses' list preview shows about 190
+
+
+def _last_exchange(turns):
+    """For the list preview (`/conversation?tail=1`): the latest prompt's first line and the END of
+    the reply to it — a couple of KB instead of the whole conversation (hundreds of KB). A reply cut
+    at the top starts on a line boundary where one is near, else is marked with a leading '... '."""
+    u = max((i for i, t in enumerate(turns) if t["role"] == "user"), default=-1)
+    out = [{"role": "user", "text": turns[u]["text"].split("\n", 1)[0][:300]}] if u >= 0 else []
+    reply = "\n".join(t["text"] for t in turns[u + 1:] if t["role"] == "assistant")
+    if len(reply) > PREVIEW_TAIL_CHARS:
+        reply = reply[-PREVIEW_TAIL_CHARS:]
+        nl = reply.find("\n")
+        reply = reply[nl + 1:] if 0 <= nl < PREVIEW_TAIL_CHARS // 2 else "... " + reply
+    if reply.strip():
+        out.append({"role": "assistant", "text": reply})
+    return out
 
 
 def _summarize_job(pid, jsonl, etag):
@@ -525,6 +544,8 @@ class Handler(BaseHTTPRequestHandler):
             if etag and q.get("etag", [""])[0] == etag:
                 return self._json(200, {"id": p["pane_id"], "notModified": True, "etag": etag})
             turns = tc.read_conversation(jsonl) if jsonl else []
+            if q.get("tail", ["0"])[0] in ("1", "true"):
+                turns = _last_exchange(turns)
             return self._json(200, {"id": p["pane_id"], "turns": turns, "working": working, "etag": etag})
         m = re.fullmatch(r"/api/panes/([^/]+)/summary", path)
         if m:

@@ -10,8 +10,13 @@ project memory; this file is the short "what changed" for each build.
 - **Preview beside the list.** The right half of the session list now shows the highlighted
   session's latest exchange — your last prompt and the end of the reply — so you can tell what a
   session is doing, or what it concluded, without opening it. A session that needs you says so.
-  Session names are clipped to make room. It appears once your swipes settle, so scrolling through
-  the list costs one request rather than one per row, and it needs no backend update.
+  Session names are clipped to make room. Nothing is drawn or fetched while you are still swiping:
+  the preview appears when you pause (about half a second), so scrolling costs the glasses no more
+  than it did before. With the updated backend the preview downloads about 2 KB instead of the whole
+  conversation; an older backend still works, it just transfers more.
+- **Less Bluetooth traffic everywhere.** The app now sends a part of the screen to the glasses only
+  when its text actually changed. Before, every update re-sent the whole screen, including an
+  identical copy every 5 seconds while idle.
 - **Optional AI summaries (off by default).** If your backend has your own Anthropic API key, the
   phone's settings offer "Summarize list previews with Claude Haiku". When on, the preview shows a
   one-line summary (marked `~`) that leads with what the session is waiting on. Your backend sends

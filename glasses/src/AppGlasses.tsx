@@ -38,9 +38,27 @@ bridge.onEvenHubEvent = (cb) => listen((e) => {
 // it) — so carry our one action on every page build. On an older Even app this is a silent no-op.
 const MENU_PIN = 1
 const menuObject = { menuItems: [{ itemName: 'Pin / unpin session', itemID: MENU_PIN }] }
+// what each text container on the glasses currently shows (see the dedup below); a page build
+// replaces the containers, so it empties this
+const shown = new Map<number, string>()
 for (const m of ['createStartUpPageContainer', 'rebuildPageContainer'] as const) {
   const build = (bridge[m] as (c: object) => Promise<unknown>).bind(bridge)
-  ;(bridge as unknown as Record<string, unknown>)[m] = (c: object) => build(Object.assign(c, { menuObject }))
+  ;(bridge as unknown as Record<string, unknown>)[m] = (c: object) => { shown.clear(); return build(Object.assign(c, { menuObject })) }
+}
+
+// even-toolkit re-sends EVERY column on every display update, changed or not (its setContent always
+// marks the element dirty). With the list's second column that doubled the Bluetooth writes per
+// frame, and an unchanged screen was re-sent whenever any state changed (e.g. each 5s poll). Send a
+// container's text only when it differs from what the glasses already show — measured in the sim, a
+// 5-swipe burst went from 24 bridge calls to about what it was before the preview existed.
+const upgrade = bridge.textContainerUpgrade.bind(bridge)
+bridge.textContainerUpgrade = async (u) => {
+  const id = Number(u.containerID), sig = `${u.contentOffset ?? 0}|${u.contentLength ?? ''}|${u.content ?? ''}`
+  if (shown.get(id) === sig) return true
+  shown.delete(id)  // unknown until this send succeeds
+  const ok = await upgrade(u)
+  if (ok) shown.set(id, sig)
+  return ok
 }
 // The menu click arrives outside even-toolkit's action pipeline, so track where the glasses are.
 let lastNav: GlassNavState = { screen: 'list', highlightedIndex: 0 }
