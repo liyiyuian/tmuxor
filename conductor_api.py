@@ -303,27 +303,30 @@ def summary_for(src, p):
     return {"pending": True, "etag": etag}
 
 
-# --- client error reports: one looping phone must not flood the journal ---
-# On 2026-10-09 a single phone sent ~9,000 identical reports a minute. Print a message the first
-# time; while the SAME message keeps arriving just count it, and say how many at most once a minute.
+# --- client error reports: looping phones must not flood the journal ---
+# On 2026-10-09 one phone sent ~9,000 identical reports a minute, later from two pages at once.
+# Print each distinct report once; while it keeps arriving, count it and say how many at most once
+# a minute — per report, so interleaved senders cannot defeat it.
 _CL_LOCK = threading.Lock()
-_cl = {"msg": None, "n": 0, "t": 0.0}
+_cl = {}  # report -> [repeats since the last line, time of the last line]
 
 
 def _clientlog(msg):
     now = time.time()
     with _CL_LOCK:
-        if msg == _cl["msg"]:
-            _cl["n"] += 1
-            if now - _cl["t"] < 60:
+        e = _cl.get(msg)
+        if e is None:
+            while len(_cl) >= 64:            # bound memory
+                _cl.pop(next(iter(_cl)))
+            _cl[msg] = [0, now]
+            out = "[clientlog] " + msg
+        else:
+            e[0] += 1
+            if now - e[1] < 60:
                 return
-            print(f"[clientlog] (same report {_cl['n']} more times)", flush=True)
-            _cl["n"], _cl["t"] = 0, now
-            return
-        if _cl["n"]:
-            print(f"[clientlog] (same report {_cl['n']} more times)", flush=True)
-        _cl["msg"], _cl["n"], _cl["t"] = msg, 0, now
-    print("[clientlog] " + msg, flush=True)
+            out = f"[clientlog] x{e[0]} more: " + msg.split("\n", 1)[0] + " " + msg.rsplit("\n", 1)[-1]
+            e[0], e[1] = 0, now
+    print(out, flush=True)
 
 
 WHISPER_USD_PER_MIN = 0.006  # OpenAI whisper-1 pricing
