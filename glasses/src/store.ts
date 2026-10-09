@@ -4,7 +4,7 @@
 import { listPanes, paneScreen, paneConversation, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
 import { GlassBridgeSource } from 'even-toolkit/stt'
 import { getTextWidth } from 'even-toolkit/pretext'
-import { getIdleSleepSec, getWakeOnChange, isConfigured } from './config'
+import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins } from './config'
 
 export type Phase = 'view' | 'listening' | 'confirm'
 const SLOTS = 9
@@ -20,7 +20,7 @@ export interface AppState {
   panes: Pane[]
   loading: boolean
   error: string | null
-  listIndex: number
+  listSel: string   // highlighted list row, by pane id (see listRow); '' = none yet -> the top row at launch
   activePaneN: string | null
   activeLabel: string
   activeIsClaude: boolean
@@ -61,7 +61,7 @@ export interface AppState {
 }
 
 let state: AppState = {
-  panes: [], loading: true, error: null, listIndex: 0,
+  panes: [], loading: true, error: null, listSel: '',
   activePaneN: null, activeLabel: '', activeIsClaude: false, activeCwd: '',
   lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], asleep: false,
   phase: 'view', draft: '', draftKind: null, busy: false, status: '', typingText: '', draftLines: [], confirmScroll: 0, lastCost: 0, totalCost: 0,
@@ -90,16 +90,44 @@ export function idleTick() {
   if (Date.now() - lastActivity >= sec * 1000) set({ asleep: true })
 }
 
+// The list highlight is anchored to a SESSION (its pane id), not a row number. The list re-sorts on
+// every poll (a status change, a pin), and a row number would silently slide onto a different
+// session between the swipe that highlights it and the tap that opens it.
+const NEW_ROW = '+'  // pseudo-id of the "＋ new session" row (always last)
+export function listRows(s: AppState): string[] { return [...s.panes.map((p) => p.n), NEW_ROW] }
+// Row of the anchored selection. If that session is gone (or nothing is chosen yet), stay at
+// `fallback` — the row the highlight was last on.
+export function listRow(s: AppState, fallback = 0): number {
+  const rows = listRows(s), i = rows.indexOf(s.listSel)
+  return i >= 0 ? i : Math.max(0, Math.min(fallback, rows.length - 1))
+}
+export function selectRow(n: string) { if (n !== state.listSel) set({ listSel: n }) }
+
 const ORDER: Record<string, number> = { waiting: 0, working: 1, done: 2, idle: 3, other: 4 }
 // Panes that went working -> idle and haven't been opened yet: they stay pinned in a top "done"
 // band (labeled », above plain idle) until the user opens them (openPane clears the mark). Dropped
 // automatically once a pane is no longer idle (worked again / now needs input) or has vanished.
 const finished = new Set<string>()
+// Pinned sessions form a band at the very top (still ordered by status inside it), then the rest.
+// A pin counts only while the id is still in the folder it was pinned in: tmux reuses pane ids after
+// a server restart, so a stored pin could otherwise land on an unrelated session. A mismatch only
+// hides the ★ (nothing is deleted), so a transient cwd change heals itself on the next poll.
 function decorateAndSort(raw: Pane[]): Pane[] {
+  const pinCwd = new Map(getPins().map((p) => [p.n, p.cwd]))
   return raw
-    .map((p) => ({ ...p, done: finished.has(p.n) }))
-    .sort((a, b) => (ORDER[a.done ? 'done' : a.status] ?? 9) - (ORDER[b.done ? 'done' : b.status] ?? 9)
+    .map((p) => ({ ...p, done: finished.has(p.n), pinned: pinCwd.get(p.n) === p.cwd }))
+    .sort((a, b) => (a.pinned ? 0 : 1) - (b.pinned ? 0 : 1)
+                    || (ORDER[a.done ? 'done' : a.status] ?? 9) - (ORDER[b.done ? 'done' : b.status] ?? 9)
                     || a.window - b.window || a.pane_index - b.pane_index)
+}
+const MAX_PINS = 30  // pins of sessions that are gone are kept (they may be on the other backend), so cap growth
+// Flips what the user SEES (p.pinned), replacing any stale entry stored under the same id.
+export function togglePin(n: string) {
+  const p = state.panes.find((x) => x.n === n)
+  if (!p) return
+  const rest = getPins().filter((x) => x.n !== n)
+  setPins(p.pinned ? rest : [...rest, { n, cwd: p.cwd }].slice(-MAX_PINS))
+  repaintPanes()
 }
 // Re-decorate + re-sort the CURRENT panes against `finished` and push if changed — reflects an
 // openPane clear immediately (the list poll only runs while no pane is open, so it can lag 5s).
@@ -492,11 +520,11 @@ function updateLive(text: string) {
 function closeStream() { if (es) { es.close(); es = null } }
 function stopAnswers() { if (answersTimer) { clearInterval(answersTimer); answersTimer = null } }
 
-export function openPane(n: string, label: string, isClaude: boolean, cwd: string, listIndex: number) {
+export function openPane(n: string, label: string, isClaude: boolean, cwd: string) {
   closeStream(); stopAnswers()
   if (finished.delete(n)) repaintPanes()  // opening a finished session acknowledges it -> unpin from the "done" band
   convoLines = []
-  set({ activePaneN: n, activeLabel: label, activeIsClaude: isClaude, activeCwd: cwd, listIndex,
+  set({ activePaneN: n, activeLabel: label, activeIsClaude: isClaude, activeCwd: cwd, listSel: n,
         lines: ['…'], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', phase: 'view', draft: '', draftKind: null, status: '', typingText: '' })
   if (isClaude) {
     const mem = paneMem.get(n)
@@ -536,6 +564,7 @@ export function closePane() {
 // Switching backend (tmux <-> herdr) changes the pane-id namespace, so the open pane view, the
 // done-band memory, and per-pane scroll memory all refer to ids that no longer exist on the newly
 // selected source. Drop them and re-poll so nothing straddles two backends (a frozen open view).
+// Pins are NOT dropped: tmux and herdr ids can't collide, so each backend's pins wait for it.
 export function resetForSourceChange() {
   fleetGen++                  // invalidate any in-flight poll from the old source
   closePane()                 // back to the fleet; stops the open pane's SSE/poll
@@ -543,7 +572,7 @@ export function resetForSourceChange() {
   prevStatus = new Map()
   paneMem.clear()
   lastPanesSig = ''
-  set({ panes: [], loading: true, error: null })
+  set({ panes: [], loading: true, error: null, listSel: '' })
   refresh()
 }
 

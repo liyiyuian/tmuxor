@@ -1,10 +1,10 @@
-TMUXor — Even Hub store listing (copy-and-paste)
+G2C — Even Hub store listing (copy-and-paste)
 =================================================
 
 
 APP NAME
 --------
-TMUXor
+G2C
 
 
 SUBTITLE / TAGLINE
@@ -14,16 +14,16 @@ Your tmux or Herdr Claude Code fleet, hands-free on your glasses
 
 SHORT DESCRIPTION
 -----------------
-TMUXor brings the Claude Code (and shell) sessions running in tmux or Herdr
+G2C brings the Claude Code (and shell) sessions running in tmux or Herdr
 onto your Even G2 glasses. See which session needs you, read its latest reply,
 and respond by voice — hands-free, over your own private Tailscale network.
 
 
 DESCRIPTION
 -----------
-TMUXor — your tmux or Herdr Claude Code fleet, hands-free on your glasses.
+G2C — your tmux or Herdr Claude Code fleet, hands-free on your glasses.
 
-TMUXor is a heads-up conductor for developers who run many Claude Code sessions
+G2C is a heads-up conductor for developers who run many Claude Code sessions
 at once. It brings the sessions running in your terminal — in tmux or in Herdr
 (herdr.dev) — onto your Even G2 glasses so you can stay in flow without reaching
 for the laptop.
@@ -32,12 +32,14 @@ for the laptop.
   pane is one session, listed by tag so you can find things fast.
 • Done, front and center — when a working session finishes it pins to the top of
   the list, marked done, until you open it, so nothing gets lost in the pile.
+• Pin what matters — star the sessions you care about (from your phone, or the
+  glasses menu) and they stay at the top of the list.
 • Real conversations — read the actual prompts and replies (not raw terminal
   noise). Reopen a session right where you left off — or jump straight to a new
   question if one arrived while you were away.
 • Voice replies — tap, speak, review the transcription (with its cost), send.
   Approve interactive menu choices with a tap.
-• Start new sessions — pick a project tag, speak a folder, and TMUXor opens a
+• Start new sessions — pick a project tag, speak a folder, and G2C opens a
   Claude session there.
 • Your choice of backend — use tmux or Herdr. If your machine runs both, pick
   which one hosts your sessions right on the Setup screen; Herdr sessions report
@@ -57,7 +59,7 @@ Productivity / Developer Tools
 
 PERMISSIONS (justifications)
 ----------------------------
-network — Connects to your own TMUXor backend over Tailscale to read and drive
+network — Connects to your own G2C backend over Tailscale to read and drive
 your tmux or Herdr sessions. (Whitelisted to Tailscale hosts; the app talks only
 to the backend URL you enter in Setup.)
 
@@ -67,7 +69,7 @@ by your configured backend.
 
 PRIVACY POLICY
 --------------
-TMUXor collects no personal data and sends nothing to its developer. It connects
+G2C collects no personal data and sends nothing to its developer. It connects
 only to the backend URL you configure — running on your own device, reached over
 your private Tailscale network — using an access token you provide. Microphone
 audio you record is sent to your configured backend, which transcribes it (by
@@ -79,7 +81,7 @@ responsible for securing your backend and API keys.
 
 TERMS & CONDITIONS
 ------------------
-TMUXor is provided "as is," without warranty of any kind. It is a developer tool
+G2C is provided "as is," without warranty of any kind. It is a developer tool
 that views and controls software (tmux / Claude Code sessions) running on your
 own computer; you are solely responsible for the commands issued on your behalf
 and for the security of your backend and credentials. The developer is not liable

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TMUXor backend installer — one command to stand up the control plane on YOUR machine.
+# G2C backend installer — one command to stand up the control plane on YOUR machine.
 #
 #   curl -fsSL https://raw.githubusercontent.com/liyiyuian/tmuxor/main/install.sh | bash
 #
@@ -30,7 +30,7 @@ warn(){ printf '\033[33m! %s\033[0m\n' "$*"; }
 die(){ printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 run(){ if [ "$DRY" = 1 ]; then echo "  [dry-run] $*"; else "$@"; fi; }
 
-c "TMUXor backend installer"
+c "G2C backend installer"
 
 # 1) prerequisites -----------------------------------------------------------
 command -v python3 >/dev/null || die "python3 not found (need 3.10+). Install Python first."
@@ -91,7 +91,7 @@ ok "wrote $ENV_FILE"
 mkdir -p "$UNIT_DIR"
 cat > "$UNIT_DIR/tmux-conductor.service" <<UNIT
 [Unit]
-Description=TMUXor backend (conductor-api)
+Description=G2C backend (conductor-api)
 After=network-online.target
 
 [Service]
@@ -120,11 +120,11 @@ URL="https://${DNS:-<your-tailscale-host>.ts.net}"
 BLOB="tmuxor:$(python3 -c 'import base64,json,sys;print(base64.urlsafe_b64encode(json.dumps({"base":sys.argv[1],"token":sys.argv[2]}).encode()).decode())' "$URL" "$TOKEN")"
 
 echo
-ok "TMUXor backend is up."
+ok "G2C backend is up."
 c  "Backend URL : $URL"
 c  "Token       : $TOKEN"
 echo
-c  "On your phone: open TMUXor → Setup → 'Paste config'. Paste this line:"
+c  "On your phone: open G2C → Connection & settings → 'Paste config'. Paste this line:"
 echo "  $BLOB"
 if command -v qrencode >/dev/null; then
   echo

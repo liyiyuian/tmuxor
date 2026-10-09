@@ -1,8 +1,9 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { useGlasses } from 'even-toolkit/useGlasses'
-import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
+import { EvenAppBridge, OsEventTypeList, pickLoose, waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
 import {
   getSnapshot, subscribe, refresh, noteActivity, idleTick,
+  listRows, listRow, selectRow, togglePin,
   openPane, closePane, scrollDetail, startVoice, stopVoice, cancelInput,
   redoVoice, sendNow, scrollConfirm,
   pickMenuOption, menuTabNext, submitMenu, scrollMenu, menuToPick, menuToRead, jumpToLatest,
@@ -10,13 +11,50 @@ import {
   type AppState,
 } from './store'
 import { router, type Ctx } from './screens'
-import { line } from 'even-toolkit/types'
+import { line, type GlassNavState } from 'even-toolkit/types'
 
 // root double-tap -> hand off to the foreground layer's system exit dialog (exitMode 1)
 const exitApp = () => { waitForEvenAppBridge().then((b) => b.shutDownPageContainer(1)).catch(() => {}) }
 
+// --- shared-bridge hooks (the same singleton even-toolkit drives) ---
+const bridge = EvenAppBridge.getInstance()
+
+// even-toolkit maps an event with NO eventType to a tap (a click's type is 0, which the host omits).
+// An event type this SDK build doesn't know ALSO parses to "no type" — that is how a long-press
+// arrived as a tap on SDK 0.0.11 and approved the highlighted option. Drop anything the SDK can't
+// name before any listener (even-toolkit's included) sees it, so a future gesture can't do the same.
+const listen = bridge.onEvenHubEvent.bind(bridge)
+bridge.onEvenHubEvent = (cb) => listen((e) => {
+  const ev = e.listEvent ?? e.textEvent ?? e.sysEvent
+  if (ev && ev.eventType == null) {
+    const raw = pickLoose(e.jsonData ?? {}, 'eventType')
+    if (raw != null && OsEventTypeList.fromJson(raw) === undefined) return
+  }
+  cb(e)
+})
+
+// Contextual menu (SDK 0.0.14+): the OS overlay raised by tap-then-hold. even-toolkit builds every
+// page itself with no menu hook, and the host REPLACES the menu on each build (omitting it clears
+// it) — so carry our one action on every page build. On an older Even app this is a silent no-op.
+const MENU_PIN = 1
+const menuObject = { menuItems: [{ itemName: 'Pin / unpin session', itemID: MENU_PIN }] }
+for (const m of ['createStartUpPageContainer', 'rebuildPageContainer'] as const) {
+  const build = (bridge[m] as (c: object) => Promise<unknown>).bind(bridge)
+  ;(bridge as unknown as Record<string, unknown>)[m] = (c: object) => build(Object.assign(c, { menuObject }))
+}
+// The menu click arrives outside even-toolkit's action pipeline, so track where the glasses are.
+let lastNav: GlassNavState = { screen: 'list', highlightedIndex: 0 }
+// "Pin / unpin session": the open session, else the highlighted list row.
+function pinFromMenu() {
+  const s = getSnapshot()
+  noteActivity()
+  const n = s.activePaneN ?? (lastNav.screen === 'list' ? listRows(s)[listRow(s, lastNav.highlightedIndex)] : '')
+  if (n) togglePin(n)
+}
+
 const ctx: Ctx = {
   exitApp,
+  selectRow,
   openPane, closePane, scrollDetail, startVoice, stopVoice, cancelInput,
   redoVoice, sendNow, scrollConfirm,
   pickMenuOption, menuTabNext, submitMenu, scrollMenu, menuToPick, menuToRead, jumpToLatest,
@@ -35,15 +73,19 @@ export function App() {
     // When (re)launched — from the phone app menu OR the glasses menu — pull a fresh
     // fleet immediately so you don't wait for the next poll.
     let unsub: (() => void) | undefined
+    let unsubMenu: (() => void) | undefined
     waitForEvenAppBridge()
-      .then((b) => { unsub = b.onLaunchSource(() => { refresh() }) })
+      .then((b) => {
+        unsub = b.onLaunchSource(() => { refresh() })
+        unsubMenu = b.onEvenHubEvent((e) => { if (e.menuItemClickEvent?.itemID === MENU_PIN) pinFromMenu() })
+      })
       .catch(() => {})
     // full teardown (SSE stream, conversation poll, mic) if App ever unmounts
-    return () => { clearInterval(t); clearInterval(sleepTimer); unsub?.(); closePane() }
+    return () => { clearInterval(t); clearInterval(sleepTimer); unsub?.(); unsubMenu?.(); closePane() }
   }, [])
 
   useGlasses<AppState>({
-    appName: 'TMUXor',
+    appName: 'G2C',
     getSnapshot,
     columns: [{ x: 0, w: 576 }], // single full-width column => flush-left, no 2-space prefix
     // asleep -> push a blank (single space) so the HUD goes dark; wake on the next gesture.
@@ -53,7 +95,7 @@ export function App() {
       const wasAsleep = getSnapshot().asleep
       noteActivity()              // any gesture resets the idle timer (and wakes a sleeping HUD)
       if (wasAsleep) return nav   // the waking gesture only wakes — it doesn't also act
-      return router.onGlassAction(a, nav, s, ctx)
+      return (lastNav = router.onGlassAction(a, nav, s, ctx))
     },
     deriveScreen: () => 'list',
     // Columns mode for: the session LIST, the live detail VIEW, and the REVIEW transcript.

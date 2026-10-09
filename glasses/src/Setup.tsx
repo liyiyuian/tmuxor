@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getSource, setSource } from './config'
 import { listPanes, health } from './api'
-import { subscribe, getSnapshot, resetForSourceChange } from './store'
+import { subscribe, getSnapshot, resetForSourceChange, togglePin } from './store'
 
 // Decode the `tmuxor:<base64>` blob that install.sh prints into a config.
 function decodeBlob(text: string): { base: string; token: string } | null {
@@ -14,9 +14,12 @@ function decodeBlob(text: string): { base: string; token: string } | null {
   } catch { return null }
 }
 
-// Phone-side settings form. Each user points the app at THEIR OWN backend with THEIR OWN
-// token — nothing is shipped in the app. Fastest path: paste the config code install.sh prints
-// (copy it from your terminal, or scan its QR with your phone's camera to copy the text).
+const STATUS: Record<string, string> = { waiting: 'needs you', working: 'working', idle: 'idle' }
+
+// Phone-side screen: your sessions (pin them here), a gesture cheat-sheet, and the settings form.
+// Each user points the app at THEIR OWN backend with THEIR OWN token — nothing is shipped in the
+// app. Fastest path: paste the config code install.sh prints (copy it from your terminal, or scan
+// its QR with your phone's camera to copy the text).
 export function Setup({ onSave }: { onSave: () => void }) {
   const c = getConfig()
   const [base, setBase] = useState(c.base)
@@ -31,6 +34,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [defSource, setDefSource] = useState('')          // the backend's own default
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [showCfg, setShowCfg] = useState(!c.base)  // settings start open until you're set up
   const [lastErr, setLastErr] = useState(() => { try { return localStorage.getItem('conductor.lastError') || '' } catch { return '' } })
 
   // Ask the backend which multiplexers it can serve, so we only show a picker when there's
@@ -66,6 +70,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
     try {
       await listPanes()
       refreshSources()   // now that the connection is proven, learn what backends it offers
+      setShowCfg(false)  // connected -> fold the form away; the session list takes its place
       onSave()
     } catch (e) {
       const msg = String((e as Error)?.message || e)
@@ -90,14 +95,15 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const rule: CSSProperties = { flex: 1, height: 1, background: '#1f6e45' }
   const chip: CSSProperties = { padding: '10px 14px', fontSize: 14, borderRadius: 10, border: '1px solid #1f6e45', background: '#0f1712', color: '#cfeede', cursor: 'pointer' }
   const chipOn: CSSProperties = { background: '#16c46a', color: '#04130a', borderColor: '#16c46a', fontWeight: 700 }
+  const summary: CSSProperties = { fontSize: 15, fontWeight: 600, color: '#d6ffe6', padding: '12px 0', cursor: 'pointer' }
+  const row: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '4px 4px 4px 12px', borderBottom: '1px solid #173a26', fontSize: 14 }
+  const rowText: CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+  const pinBtn: CSSProperties = { padding: '6px 12px', fontSize: 20, lineHeight: 1, border: 'none', background: 'transparent' }
 
   return (
     <div style={wrap}>
-      <h2 style={{ margin: 0, fontSize: 20 }}>TMUXor — Setup</h2>
-      <p style={{ color: '#88a895', fontSize: 13, lineHeight: 1.4 }}>
-        Run <code>install.sh</code> on your computer, then paste the config code it prints. Everything stays on this phone.
-      </p>
-      <p style={{ color: statusColor, fontSize: 13, margin: '4px 0 0', fontWeight: 600 }}>{status}</p>
+      <h2 style={{ margin: 0, fontSize: 20 }}>G2C</h2>
+      <p style={{ color: statusColor, fontSize: 13, margin: '8px 0 0', fontWeight: 600 }}>{status}</p>
 
       {lastErr && (
         <div style={{ background: '#241010', border: '1px solid #6e2a2a', borderRadius: 8, padding: '8px 10px', margin: '10px 0 0' }}>
@@ -108,47 +114,77 @@ export function Setup({ onSave }: { onSave: () => void }) {
         </div>
       )}
 
-      <label style={label} htmlFor="cfg-blob">Paste config — the code from install.sh</label>
-      <textarea id="cfg-blob" style={{ ...input, minHeight: 64, resize: 'vertical', fontFamily: 'monospace', fontSize: 13 }}
-        value={blob} onChange={(e) => { setBlob(e.target.value); setErr('') }} placeholder="tmuxor:…" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-      <button style={{ ...btn, marginTop: 10 }} onClick={applyBlob} disabled={busy}>{busy ? 'Connecting…' : 'Paste config & connect'}</button>
-
-      <div style={divider}><div style={rule} /> or enter manually <div style={rule} /></div>
-      <label style={label} htmlFor="cfg-url">Backend URL (your Tailscale HTTPS address)</label>
-      <input id="cfg-url" type="url" inputMode="url" style={input} value={base} onChange={(e) => { setBase(e.target.value); setErr('') }} placeholder="your Tailscale HTTPS URL" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-      <label style={label} htmlFor="cfg-token">Access token (your CONDUCTOR_TOKEN)</label>
-      <input id="cfg-token" type="password" style={input} value={token} onChange={(e) => { setToken(e.target.value); setErr('') }} placeholder="paste your token" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-
-      {(sources.length > 1 || (sources.length === 1 && !!defSource && !sources.includes(defSource))) && (
+      {configured && !live.error && live.panes.length > 0 && (
         <>
-          <label style={label}>Backend — which multiplexer hosts your sessions</label>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {['', ...sources].map((s) => (
-              <button key={s || 'auto'} type="button" onClick={() => { if (s !== source) { setSrc(s); setSource(s); resetForSourceChange() } }}
-                style={{ ...chip, ...(source === s ? chipOn : {}) }}>
-                {s === '' ? `Auto — ${sources.includes(defSource) ? defSource : sources[0] || 'default'}` : s}
-              </button>
+          <label style={label}>Sessions — tap ★ to keep one at the top of your glasses</label>
+          <div style={{ maxHeight: 290, overflowY: 'auto', border: '1px solid #1f6e45', borderRadius: 10, background: '#0f1712' }}>
+            {live.panes.map((p) => (
+              <div key={p.n} style={row}>
+                <span style={rowText}><b>{p.tag}</b> {p.label} <span style={{ color: '#6f8a7b' }}>· {p.done ? 'done' : STATUS[p.status] || p.status}</span></span>
+                <button type="button" aria-label={p.pinned ? 'Unpin' : 'Pin'} style={{ ...pinBtn, color: p.pinned ? '#16c46a' : '#5f7a6b' }} onClick={() => togglePin(p.n)}>{p.pinned ? '★' : '☆'}</button>
+              </div>
             ))}
           </div>
-          <p style={{ color: '#6f8a7b', fontSize: 12, margin: '6px 0 0' }}>Pick which backend’s sessions the glasses drive.</p>
         </>
       )}
 
-      <label style={label} htmlFor="cfg-projects">Projects folder (optional) — where new sessions are created</label>
-      <input id="cfg-projects" style={input} value={projects} onChange={(e) => { setProjects(e.target.value); setErr('') }} placeholder="~/projects (default)" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+      <details style={{ marginTop: 14 }}>
+        <summary style={summary}>How to use the glasses</summary>
+        <ul style={{ margin: 0, paddingLeft: 18, color: '#b9d8c6', fontSize: 13, lineHeight: 1.6 }}>
+          <li><b>Session list</b> — swipe to move, tap to open, double-tap to exit. ★ sessions stay on top; “＋ new session” is the last row (swipe up from the top).</li>
+          <li><b>In a session</b> — swipe to scroll, tap to reply (speak, or type here), double-tap to go back.</li>
+          <li><b>When it asks you something</b> — read it, tap, swipe to your answer, tap to choose.</li>
+          <li><b>Pin / unpin</b> — tap ★ above. Or on the glasses: highlight it in the session list, tap then press-and-hold to open the menu, and choose “Pin / unpin session”.</li>
+        </ul>
+      </details>
 
-      <label style={label} htmlFor="cfg-keypath">OpenAI key file (optional) — for voice. Auto-found in env/~/.env; set a path only if elsewhere</label>
-      <input id="cfg-keypath" style={input} value={keyPath} onChange={(e) => { setKeyPath(e.target.value); setErr('') }} placeholder="e.g. ~/.config/openai/key" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+      <details open={showCfg} onToggle={(e) => setShowCfg(e.currentTarget.open)}>
+        <summary style={summary}>Connection &amp; settings</summary>
+        <p style={{ color: '#88a895', fontSize: 13, lineHeight: 1.4, margin: 0 }}>
+          Run <code>install.sh</code> on your computer, then paste the config code it prints. Everything stays on this phone.
+        </p>
+        <label style={label} htmlFor="cfg-blob">Paste config — the code from install.sh</label>
+        <textarea id="cfg-blob" style={{ ...input, minHeight: 64, resize: 'vertical', fontFamily: 'monospace', fontSize: 13 }}
+          value={blob} onChange={(e) => { setBlob(e.target.value); setErr('') }} placeholder="tmuxor:…" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+        <button style={{ ...btn, marginTop: 10 }} onClick={applyBlob} disabled={busy}>{busy ? 'Connecting…' : 'Paste config & connect'}</button>
 
-      <label style={label} htmlFor="cfg-idle">Glasses screen on-time (seconds before it sleeps; 0 = always on)</label>
-      <input id="cfg-idle" type="number" inputMode="numeric" min="0" style={input} value={idleSec} onChange={(e) => { setIdleSec(e.target.value); setErr('') }} placeholder="0" />
-      <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <input type="checkbox" checked={wakeChange} onChange={(e) => setWakeChange(e.target.checked)} />
-        Wake the glasses when a session finishes or needs input
-      </label>
+        <div style={divider}><div style={rule} /> or enter manually <div style={rule} /></div>
+        <label style={label} htmlFor="cfg-url">Backend URL (your Tailscale HTTPS address)</label>
+        <input id="cfg-url" type="url" inputMode="url" style={input} value={base} onChange={(e) => { setBase(e.target.value); setErr('') }} placeholder="your Tailscale HTTPS URL" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+        <label style={label} htmlFor="cfg-token">Access token (your CONDUCTOR_TOKEN)</label>
+        <input id="cfg-token" type="password" style={input} value={token} onChange={(e) => { setToken(e.target.value); setErr('') }} placeholder="paste your token" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
 
-      {err && <p style={{ color: '#ff8a8a', fontSize: 13 }}>{err}</p>}
-      <button style={btn} onClick={save} disabled={busy}>{busy ? 'Connecting…' : 'Save & connect'}</button>
+        {(sources.length > 1 || (sources.length === 1 && !!defSource && !sources.includes(defSource))) && (
+          <>
+            <label style={label}>Backend — which multiplexer hosts your sessions</label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {['', ...sources].map((s) => (
+                <button key={s || 'auto'} type="button" onClick={() => { if (s !== source) { setSrc(s); setSource(s); resetForSourceChange() } }}
+                  style={{ ...chip, ...(source === s ? chipOn : {}) }}>
+                  {s === '' ? `Auto — ${sources.includes(defSource) ? defSource : sources[0] || 'default'}` : s}
+                </button>
+              ))}
+            </div>
+            <p style={{ color: '#6f8a7b', fontSize: 12, margin: '6px 0 0' }}>Pick which backend’s sessions the glasses drive.</p>
+          </>
+        )}
+
+        <label style={label} htmlFor="cfg-projects">Projects folder (optional) — where new sessions are created</label>
+        <input id="cfg-projects" style={input} value={projects} onChange={(e) => { setProjects(e.target.value); setErr('') }} placeholder="~/projects (default)" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+
+        <label style={label} htmlFor="cfg-keypath">OpenAI key file (optional) — for voice. Auto-found in env/~/.env; set a path only if elsewhere</label>
+        <input id="cfg-keypath" style={input} value={keyPath} onChange={(e) => { setKeyPath(e.target.value); setErr('') }} placeholder="e.g. ~/.config/openai/key" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+
+        <label style={label} htmlFor="cfg-idle">Glasses screen on-time (seconds before it sleeps; 0 = always on)</label>
+        <input id="cfg-idle" type="number" inputMode="numeric" min="0" style={input} value={idleSec} onChange={(e) => { setIdleSec(e.target.value); setErr('') }} placeholder="0" />
+        <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" checked={wakeChange} onChange={(e) => setWakeChange(e.target.checked)} />
+          Wake the glasses when a session finishes or needs input
+        </label>
+
+        {err && <p style={{ color: '#ff8a8a', fontSize: 13 }}>{err}</p>}
+        <button style={btn} onClick={save} disabled={busy}>{busy ? 'Connecting…' : 'Save & connect'}</button>
+      </details>
     </div>
   )
 }

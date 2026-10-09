@@ -1,6 +1,6 @@
-TMUXor — see and continue your tmux + Claude Code sessions from your Even G2 glasses.
+G2C — see and continue your tmux + Claude Code sessions from your Even G2 glasses.
 
-Run a fleet of Claude Code sessions on your computer? TMUXor puts them on your glasses so your work stays trackable, hands-free — over your own private Tailscale network. Nothing is sent to the app developer.
+Run a fleet of Claude Code sessions on your computer? G2C puts them on your glasses so your work stays trackable, hands-free — over your own private Tailscale network. Nothing is sent to the app developer.
 
 • Tagged fleet, sorted by what needs you — each tmux window is a project tag.
 • Read the real conversation; double-tap jumps back to the latest prompt.

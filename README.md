@@ -1,8 +1,10 @@
-# TMUXor
+# G2C
+
+> Formerly **TMUXor** — same app, new name (the repo, package id and `tmuxor:` setup code are unchanged).
 
 **Your tmux (or Herdr) Claude Code fleet, hands-free on your Even G2 glasses.**
 
-TMUXor puts the Claude Code (and shell) sessions running in your terminal — in **tmux**
+G2C puts the Claude Code (and shell) sessions running in your terminal — in **tmux**
 or in **[Herdr](https://herdr.dev/)** — onto your glasses, so your running work stays
 trackable and hands-free. Each tmux window (or Herdr workspace) is a project **tag**, so
 you tell sessions apart at a glance — see which one needs you, read its real prompts and
@@ -40,7 +42,7 @@ with `tailscale serve`, and prints a **scannable QR code** (plus a one-line conf
 
 Then on your phone:
 
-1. Install **TMUXor** from the Even Hub.
+1. Install **G2C** from the Even Hub.
 2. Open it — it opens straight to the **Setup** screen — and **paste the config code** the
    installer printed (copy it from your terminal, or scan the QR with your phone's camera to
    copy the text), then connect.
@@ -50,9 +52,9 @@ That's it — no typing the URL or token by hand. (Manual entry also available �
 ### Requirements (prepare these first)
 - **Even G2 glasses** + the Even phone app, paired.
 - **tmux** and **Claude Code** installed. You do *not* need a session running already —
-  TMUXor can start your first one from the glasses ("＋ new session").
+  G2C can start your first one from the glasses ("＋ new session").
 - *(Alternative to tmux)* **[Herdr](https://herdr.dev/)** — an agent-aware terminal
-  multiplexer. If Herdr is installed and running, TMUXor auto-detects it; the phone Setup
+  multiplexer. If Herdr is installed and running, G2C auto-detects it; the phone Setup
   screen then lets you pick tmux or Herdr (Herdr reports session status natively). If the
   `herdr` binary isn't on the service's `PATH`, set `CONDUCTOR_HERDR_BIN` in
   `~/.config/tmux-conductor.env` to its full path.
@@ -71,15 +73,22 @@ Tailscale **HTTPS** toggle and signing in on the phone are the two it can't do f
 
 ## Using it
 
-The phone app just holds your connection — everything happens on the glasses with **three
-gestures**, reassigned per screen (each screen shows a hint of what they do):
+The phone app holds your connection, lists your sessions (tap ★ to pin one) and takes typed
+replies — everything else happens on the glasses with **three gestures**, reassigned per screen
+(each screen shows a hint of what they do):
 
 > **tap** = the primary action · **double-tap** = back · **swipe up/down** = move / scroll
 
 - **The fleet** — your sessions, sorted by what needs you: **!** waiting on you · **●** working
   · **○** idle, with **finished** sessions (`»`) pinned on top until you open them. Each row is
   `tag  title` (the tag is the tmux window / Herdr workspace / project). Swipe to scroll
-  (**▶** marks the selected row), tap to open. The top row, **＋ new session**, starts a new one.
+  (**▶** marks the selected row — it follows the session, so a re-sort never moves it onto a
+  different one), tap to open. The list opens on the session that most needs you; the last row,
+  **＋ new session**, is one swipe up from the top.
+- **Pinning** — keep the sessions you care about at the top, marked **★**. Tap ★ next to a
+  session on your phone. Or on the glasses: highlight it in the session list, **tap then
+  press-and-hold** to open the system menu, and choose **Pin / unpin session** (needs Even app
+  2.2.10+). Pins are saved on your phone.
 - **Reading a session** — opens at the latest question. Swipe to scroll the real prompts and
   replies. **Double-tap** walks you back toward the live edge — latest prompt → bottom → out to
   the list. Tap to reply.

@@ -5,13 +5,14 @@ import { buildScrollableList } from 'even-toolkit/glass-display-builders'
 import { moveHighlight } from 'even-toolkit/glass-nav'
 import { truncateGlassText, getTextWidth } from 'even-toolkit/pretext'
 import { createGlassScreenRouter, type GlassScreen } from 'even-toolkit/glass-screen-router'
-import type { AppState } from './store'
+import { listRows, listRow, type AppState } from './store'
 import type { Pane } from './api'
 import { isConfigured } from './config'
 
 export interface Ctx {
   exitApp: () => void
-  openPane: (n: string, label: string, isClaude: boolean, cwd: string, listIndex: number) => void
+  openPane: (n: string, label: string, isClaude: boolean, cwd: string) => void
+  selectRow: (n: string) => void
   closePane: () => void
   scrollDetail: (dir: 'up' | 'down') => void
   scrollMenu: (dir: 'up' | 'down') => void
@@ -38,6 +39,7 @@ export interface Ctx {
 }
 
 const GLYPH: Record<string, string> = { waiting: '!', working: '●', idle: '○', other: '·' }
+const PIN = '★'  // marks a pinned session (list row + open-session header)
 const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1) + '…')
 const DETAIL_SLOTS = 9
 const VIEW_SLOTS = 9  // conversation/shell view: header (with scroll/position) + 9 content, no footer (must match store VIEW_SLOTS)
@@ -97,49 +99,59 @@ function menuRows(s: AppState): MenuRow[] {
 
 const listScreen: GlassScreen<AppState, Ctx> = {
   display(s, nav): DisplayData {
-    if (!isConfigured()) return { lines: [...glassHeader('TMUXor'), line('Not set up yet', 'meta'), line('Open TMUXor on your phone', 'meta'), line('and enter your backend URL + token', 'meta')] }
-    if (s.loading) return { lines: [...glassHeader('TMUXor'), line('loading…', 'meta')] }
-    if (s.error) return { lines: [...glassHeader('TMUXor'), line('offline', 'meta'), line(clip(s.error, 26), 'meta')] }
+    if (!isConfigured()) return { lines: [...glassHeader('G2C'), line('Not set up yet', 'meta'), line('Open G2C on your phone', 'meta'), line('and enter your backend URL + token', 'meta')] }
+    if (s.loading) return { lines: [...glassHeader('G2C'), line('loading…', 'meta')] }
+    if (s.error) return { lines: [...glassHeader('G2C'), line('offline', 'meta'), line(clip(s.error, 26), 'meta')] }
     const wait = s.panes.filter((p) => p.status === 'waiting').length
     const work = s.panes.filter((p) => p.status === 'working').length
     const done = s.panes.filter((p) => p.done).length  // just-finished (working->idle), pinned until opened
     const idle = Math.max(0, s.panes.length - work - wait - done)
     // one consistent bar; drop zero fields instead of hiding idle when busy
-    const bar = [wait && `${wait}! need you`, work && `${work}● working`, done && `${done}» done`, idle && `${idle}○ idle`].filter(Boolean).join(' · ') || 'no sessions'
-    // row 0 is a pinned "＋ new session" action; panes follow (null = the new-session row)
-    const items: (Pane | null)[] = [null, ...s.panes]
+    const segs = [wait && `${wait}! need you`, work && `${work}● working`, done && `${done}» done`, idle && `${idle}○ idle`].filter(Boolean)
+    // Sessions first (pinned ★ band on top, then by status); "＋ new session" is the LAST row. So the
+    // list opens on the session that most needs you, and new-session is one swipe up (the list wraps).
+    const items: (Pane | null)[] = [...s.panes, null]
+    const hi = listRow(s, nav.highlightedIndex)
     const VIS = 8
     const pages = Math.max(1, Math.ceil(items.length / VIS))
-    const page = Math.min(pages, Math.floor(nav.highlightedIndex / VIS) + 1)
+    const page = Math.min(pages, Math.floor(hi / VIS) + 1)
     const list = buildScrollableList({
       items,
-      highlightedIndex: nav.highlightedIndex,
+      highlightedIndex: hi,
       maxVisible: VIS,
       // tag (project) first — it's the disambiguator across ~35 sessions; only the long title clips.
       // ▶ marks the selected row by TEXT (columns page mode flattens the line highlight style); the
       // 3-space else keeps rows aligned. Marker is inside truncateGlassText so width still fits ~568px.
       formatter: (it, i) =>
-        truncateGlassText(`${i === nav.highlightedIndex ? '▶ ' : '   '}${it ? `${it.done ? '»' : (GLYPH[it.status] ?? '·')} ${it.tag}  ${it.label}` : '＋ new session'}`),
+        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${it.pinned ? PIN : ''}${it.done ? '»' : (GLYPH[it.status] ?? '·')} ${it.tag}  ${it.label}` : '＋ new session'}`),
     })
-    return { lines: [...glassHeader(`PANELS ${s.panes.length} · p${page}/${pages}`, bar), ...list] }
+    // The header must stay ONE line (a wrapped header pushes the list past the 10-line screen): with
+    // every count in double digits the full bar is ~600px, so drop the least urgent counts to fit.
+    const head = (n: number) => `SESSIONS ${s.panes.length} · p${page}/${pages}  ${segs.slice(0, n).join(' · ') || 'no sessions'}`
+    let n = segs.length
+    while (n > 1 && getTextWidth(head(n)) > 548) n--
+    return { lines: [...glassHeader(head(n)), ...list] }
   },
   action(a, nav, s, ctx) {
-    const total = s.panes.length + 1 // indices 0..panes.length (row 0 = new-session)
+    if (a.type === 'GO_BACK') { ctx.exitApp(); return nav } // root double-tap = system exit dialog
+    // no list on screen (not set up / loading / offline) -> nothing to move or open. Also keeps an
+    // unconfigured app off the network (a tap used to start the new-session flow and fetch).
+    if (!isConfigured() || s.loading || s.error) return nav
+    // the highlight is anchored to a session id (store.listSel), so resolve the row from that
+    const rows = listRows(s), hi = listRow(s, nav.highlightedIndex)
     if (a.type === 'HIGHLIGHT_MOVE') {
       // wrap around: swipe up from the first row jumps to the last, and vice versa —
       // the fast way to reach the far end of a long fleet without a page-jump gesture.
-      const delta = a.direction === 'up' ? -1 : 1
-      return { ...nav, highlightedIndex: (nav.highlightedIndex + delta + total) % total }
+      const next = (hi + (a.direction === 'up' ? -1 : 1) + rows.length) % rows.length
+      ctx.selectRow(rows[next])
+      return { ...nav, highlightedIndex: next }
     }
     if (a.type === 'SELECT_HIGHLIGHTED') {
-      if (nav.highlightedIndex === 0) { ctx.startNewSession(); return { screen: 'new', highlightedIndex: 0 } }
-      const p = s.panes[nav.highlightedIndex - 1]
-      if (p) {
-        ctx.openPane(p.n, p.label, p.is_claude, p.cwd, nav.highlightedIndex)
-        return { screen: 'detail', highlightedIndex: 0 }
-      }
+      const p = s.panes[hi]
+      if (!p) { ctx.startNewSession(); return { screen: 'new', highlightedIndex: 0 } } // the ＋ row
+      ctx.openPane(p.n, p.label, p.is_claude, p.cwd)
+      return { screen: 'detail', highlightedIndex: 0 }
     }
-    if (a.type === 'GO_BACK') { ctx.exitApp(); return nav } // root double-tap = system exit dialog
     return nav
   },
 }
@@ -157,7 +169,7 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
         line('Tap → back to the session list', 'meta'),
       ] }
     }
-    const title = clip(s.activeLabel || 'session', 18)
+    const title = (s.panes.find((p) => p.n === s.activePaneN)?.pinned ? PIN + ' ' : '') + clip(s.activeLabel || 'session', 18)
     if (s.phase === 'listening') {
       return { lines: [
         ...glassHeader(title, s.typingText ? 'TYPING' : (s.voiceOn ? 'LISTENING' : 'TYPE ON PHONE')),
@@ -261,7 +273,7 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
       if (s.menuPhase === 'read') {
         if (a.type === 'HIGHLIGHT_MOVE') { ctx.scrollMenu(a.direction); return nav }
         if (a.type === 'SELECT_HIGHLIGHTED') { ctx.menuToPick(); return { ...nav, highlightedIndex: s.menu.cursorIndex } }
-        if (a.type === 'GO_BACK') { ctx.closePane(); return { screen: 'list', highlightedIndex: s.listIndex } }
+        if (a.type === 'GO_BACK') { ctx.closePane(); return { screen: 'list', highlightedIndex: listRow(s) } }
         return nav
       }
       const rows = menuRows(s)
@@ -288,7 +300,7 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
     // double-tap returns you toward the live edge first (latest prompt -> bottom), then leaves
     if (a.type === 'GO_BACK') {
       if (ctx.jumpToLatest()) return nav
-      ctx.closePane(); return { screen: 'list', highlightedIndex: s.listIndex }
+      ctx.closePane(); return { screen: 'list', highlightedIndex: listRow(s) }
     }
     return nav
   },
@@ -366,7 +378,7 @@ const newScreen: GlassScreen<AppState, Ctx> = {
     if (s.newPhase === 'done') {
       if (a.type === 'SELECT_HIGHLIGHTED' && s.newPaneN) {
         const p = s.panes.find((x) => x.n === s.newPaneN)
-        ctx.openPane(s.newPaneN, p?.label || 'new', true, p?.cwd || s.newPath, 0)
+        ctx.openPane(s.newPaneN, p?.label || 'new', true, p?.cwd || s.newPath)
         return { screen: 'detail', highlightedIndex: 0 }
       }
       if (a.type === 'GO_BACK') { ctx.cancelNewSession(); return { screen: 'list', highlightedIndex: 0 } }

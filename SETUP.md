@@ -1,6 +1,6 @@
-# TMUXor — Setup Guide
+# G2C — Setup Guide
 
-TMUXor turns your **Even G2 glasses** into a hands-free conductor for the **Claude Code
+G2C turns your **Even G2 glasses** into a hands-free conductor for the **Claude Code
 (and shell) sessions running in tmux or [Herdr](https://herdr.dev/)**: see which session
 needs you, read the conversation, and reply by voice — all from the glasses, over your
 Tailscale network.
@@ -81,7 +81,7 @@ Notes:
 mkdir -p ~/.config/systemd/user
 cat > ~/.config/systemd/user/tmux-conductor.service <<EOF
 [Unit]
-Description=TMUXor control plane (Even G2 glasses backend)
+Description=G2C control plane (Even G2 glasses backend)
 After=network-online.target
 
 [Service]
@@ -124,7 +124,7 @@ time, run `sudo tailscale set --operator=$USER` once.)
 
 ### 2d. (Optional) Use Herdr instead of / alongside tmux
 
-TMUXor can drive sessions hosted by **[Herdr](https://herdr.dev/)** (an agent-aware
+G2C can drive sessions hosted by **[Herdr](https://herdr.dev/)** (an agent-aware
 terminal multiplexer) instead of tmux. Herdr reports each session's state
 (working / needs-input / idle / done) **natively**, so status is more accurate than the
 tmux path's screen inference.
@@ -160,23 +160,23 @@ Edit `glasses/app.json`:
 cd glasses
 npm install
 npm run build
-npx @evenrealities/evenhub-cli@latest pack app.json dist -o TMUXor.ehpk
+npx @evenrealities/evenhub-cli@latest pack app.json dist -o G2C.ehpk
 ```
 
-This produces `TMUXor.ehpk`. (Leave the build with **no baked-in secrets** — you'll enter
+This produces `G2C.ehpk`. (Leave the build with **no baked-in secrets** — you'll enter
 the URL/token on-device in step 3d.)
 
 ### 3c. Install on the glasses
 
 1. Go to **[hub.evenrealities.com](https://hub.evenrealities.com)** → log in → your developer area.
-2. Create/select your app (its `package_id` must match `app.json`) and **upload `TMUXor.ehpk`**.
+2. Create/select your app (its `package_id` must match `app.json`) and **upload `G2C.ehpk`**.
 3. In the **Even phone app**, open the **Developer Center**, and install your build (scan the
    install QR, or install from your dev builds list). If you're updating, **uninstall the old
    version first** — Even keys updates by version number.
 
 ### 3d. Connect it
 
-Open TMUXor on the phone. On first launch it shows a **Setup** screen — enter:
+Open G2C on the phone. On first launch the **Connection & settings** section is open — enter:
 - **Backend URL**: your `https://<host>.<tailnet>.ts.net`
 - **Access token**: your `CONDUCTOR_TOKEN`
 
@@ -190,9 +190,12 @@ background — it's the Bluetooth bridge to the glasses.
 
 Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe = move/scroll):
 
-- **Panels list** — your sessions, grouped by tmux window / Herdr workspace (the **tag**),
-  with finished sessions (**»**) pinned on top. Swipe to move, double-tap to jump a page,
-  tap to open. Row 0 is **＋ new session**.
+- **Session list** — your sessions, grouped by tmux window / Herdr workspace (the **tag**):
+  pinned (**★**) first, then finished (**»**) until you open them. Swipe to move, tap to open,
+  double-tap to exit. The last row is **＋ new session** (one swipe up from the top).
+- **Pin a session** — tap ★ next to it on the phone. Or on the glasses: highlight it in the
+  session list, tap then press-and-hold to open the system menu, and choose **Pin / unpin
+  session** (Even app 2.2.10+).
 - **Conversation** — opens at the latest question; swipe to scroll, **tap = talk** (speak a
   reply → review screen → tap to send), double-tap = back.
 - **New session** — pick a **tag** (existing tmux window or ＋ speak a new one) → speak a

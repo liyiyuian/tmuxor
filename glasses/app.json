@@ -1,15 +1,15 @@
 {
   "package_id": "com.liyiyuian.tmuxor",
   "edition": "202601",
-  "name": "TMUXor",
-  "version": "1.0.37",
-  "min_app_version": "2.0.0",
-  "min_sdk_version": "0.0.7",
+  "name": "G2C",
+  "version": "1.0.38",
+  "min_app_version": "2.2.10",
+  "min_sdk_version": "0.0.16",
   "entrypoint": "index.html",
   "permissions": [
     {
       "name": "network",
-      "desc": "Connect to your TMUXor backend over Tailscale.",
+      "desc": "Connect to your G2C backend over Tailscale.",
       "whitelist": [
         "https://*.ts.net",
         "https://*.*.ts.net"

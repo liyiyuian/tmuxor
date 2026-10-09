@@ -1,10 +1,34 @@
-# Changelog — TMUXor
+# Changelog — G2C (formerly TMUXor)
 
 User-facing changes per version. Newest first. Deeper technical notes live in the
 project memory; this file is the short "what changed" for each build.
 
-> Builds: TMUXor ships as a single **public** `.ehpk` — it bakes no secrets, so every user
+> Builds: G2C ships as a single **public** `.ehpk` — it bakes no secrets, so every user
 > enters their own backend URL + token on the app's Setup screen.
+
+## 1.0.38 — 2026-10-08
+- **New name: G2C** (was TMUXor). Display name only — same app and package id, so it updates in
+  place and keeps your settings; the `tmuxor:` setup code from `install.sh` still works.
+- **Pin sessions to the top.** Star a session and it stays in a ★ band at the top of the list
+  (ordered by status inside the band). Pin from the phone — the app screen now lists your sessions
+  with a ★ toggle — or from the session list on the glasses: highlight it, tap then press-and-hold to
+  open the system menu, and choose **Pin / unpin session**. Pins are saved on your phone alongside
+  your connection settings; no backend update is needed.
+- **Safety fix: a long-press could approve a command.** Newer Even apps send long-press events. The
+  SDK this app was built on (0.0.11) didn't know them, so one arrived as a plain tap — on the
+  approve screen that picked the highlighted option, and the release picked it again (reproduced in
+  the Even simulator; not confirmed on hardware). Fixed by moving to Even Hub SDK 0.0.16, plus a
+  guard that drops any event type the SDK can't name.
+- **The highlight follows the session, not the row.** The list re-sorts as sessions change state;
+  the ▶ used to stay on a row number, so it could slide onto a different session between your swipe
+  and your tap. It is now anchored to the session.
+- **Easier list.** It opens on the session that most needs you; **＋ new session** moved to the last
+  row (one swipe up from the top). The header reads SESSIONS and always stays on one line. While
+  the app is not set up, loading, or offline, taps on the glasses do nothing (and make no requests).
+- **Phone screen.** Leads with your sessions and a short "How to use the glasses" guide; the
+  connection form folds away once you're connected.
+- **Requires Even app 2.2.10 or later** (Even Hub SDK 0.0.16). Update the Even app first if this
+  build doesn't appear.
 
 ## 1.0.37 — 2026-07-09
 - **Review fix:** the app no longer makes any network request before you've entered your backend

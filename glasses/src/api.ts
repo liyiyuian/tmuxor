@@ -34,6 +34,7 @@ export interface Pane {
   is_claude: boolean
   is_conductor: boolean
   done?: boolean  // client-only: set once a session goes working->idle, until it's opened — pins it in a top "done" band
+  pinned?: boolean  // client-only: the user pinned this session to the top (config.ts getPins)
 }
 
 export async function listPanes(claudeOnly = true): Promise<Pane[]> {
