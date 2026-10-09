@@ -34,6 +34,8 @@ for the laptop.
   the list, marked done, until you open it, so nothing gets lost in the pile.
 • Pin what matters — star the sessions you care about (from your phone, or the
   glasses menu) and they stay at the top of the list.
+• Preview before you open — the list shows the highlighted session's last
+  prompt and the end of its reply, so you can triage at a glance.
 • Real conversations — read the actual prompts and replies (not raw terminal
   noise). Reopen a session right where you left off — or jump straight to a new
   question if one arrived while you were away.

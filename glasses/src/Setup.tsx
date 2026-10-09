@@ -131,7 +131,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
       <details style={{ marginTop: 14 }}>
         <summary style={summary}>How to use the glasses</summary>
         <ul style={{ margin: 0, paddingLeft: 18, color: '#b9d8c6', fontSize: 13, lineHeight: 1.6 }}>
-          <li><b>Session list</b> — swipe to move, tap to open, double-tap to exit. ★ sessions stay on top; “＋ new session” is the last row (swipe up from the top).</li>
+          <li><b>Session list</b> — swipe to move, tap to open, double-tap to exit. The right side previews the highlighted session. ★ sessions stay on top; “＋ new session” is the last row (swipe up from the top).</li>
           <li><b>In a session</b> — swipe to scroll, tap to reply (speak, or type here), double-tap to go back.</li>
           <li><b>When it asks you something</b> — read it, tap, swipe to your answer, tap to choose.</li>
           <li><b>Pin / unpin</b> — tap ★ above. Or on the glasses: highlight it in the session list, tap then press-and-hold to open the menu, and choose “Pin / unpin session”.</li>

@@ -192,7 +192,8 @@ Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe =
 
 - **Session list** — your sessions, grouped by tmux window / Herdr workspace (the **tag**):
   pinned (**★**) first, then finished (**»**) until you open them. Swipe to move, tap to open,
-  double-tap to exit. The last row is **＋ new session** (one swipe up from the top).
+  double-tap to exit. The last row is **＋ new session** (one swipe up from the top). The right
+  half of the screen previews the highlighted session's last prompt and the end of its reply.
 - **Pin a session** — tap ★ next to it on the phone. Or on the glasses: highlight it in the
   session list, tap then press-and-hold to open the system menu, and choose **Pin / unpin
   session** (Even app 2.2.10+).

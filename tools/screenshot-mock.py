@@ -15,7 +15,7 @@ PANES = [
 ]
 CONVO = {"turns":[
     {"role":"user","text":"add refresh-token rotation"},
-    {"role":"assistant","text":"Added rotation: every refresh issues a new refresh token and revokes the previous one, so a stolen token is single-use. Reuse of a revoked token now invalidates the whole chain and forces a re-login. Existing sessions migrate on their next refresh."},
+    {"role":"assistant","text":"Added rotation: every refresh issues a new refresh token and revokes the previous one, so a stolen token is single-use. Reuse of a revoked token now invalidates the whole chain and forces a re-login. Existing sessions migrate on their next refresh.\n\nAll 42 auth tests pass. Want me to open a PR?"},
 ], "working":False, "etag":"demo1", "notModified":False}
 # a pane sitting at a Bash permission prompt (for the read-before-approve screenshot)
 MENU_SCREEN = ("● Bash(npm run deploy -- --env=staging)\n  ⎿ building...\n"

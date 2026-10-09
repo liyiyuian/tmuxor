@@ -84,7 +84,9 @@ replies — everything else happens on the glasses with **three gestures**, reas
   `tag  title` (the tag is the tmux window / Herdr workspace / project). Swipe to scroll
   (**▶** marks the selected row — it follows the session, so a re-sort never moves it onto a
   different one), tap to open. The list opens on the session that most needs you; the last row,
-  **＋ new session**, is one swipe up from the top.
+  **＋ new session**, is one swipe up from the top. The right half of the screen **previews** the
+  highlighted session — your last prompt and the end of its reply — so you can triage without
+  opening each one.
 - **Pinning** — keep the sessions you care about at the top, marked **★**. Tap ★ next to a
   session on your phone. Or on the glasses: highlight it in the session list, **tap then
   press-and-hold** to open the system menu, and choose **Pin / unpin session** (needs Even app

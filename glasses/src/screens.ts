@@ -40,6 +40,9 @@ export interface Ctx {
 
 const GLYPH: Record<string, string> = { waiting: '!', working: '●', idle: '○', other: '·' }
 const PIN = '★'  // marks a pinned session (list row + open-session header)
+// The list screen is two columns sharing the display: rows on the left (clipped to LIST_PX), a preview
+// of the highlighted session on the right (AppGlasses `columns` puts it at x=300; store PREVIEW_PX).
+const LIST_PX = 286
 const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1) + '…')
 const DETAIL_SLOTS = 9
 const VIEW_SLOTS = 9  // conversation/shell view: header (with scroll/position) + 9 content, no footer (must match store VIEW_SLOTS)
@@ -111,7 +114,7 @@ const listScreen: GlassScreen<AppState, Ctx> = {
     // Sessions first (pinned ★ band on top, then by status); "＋ new session" is the LAST row. So the
     // list opens on the session that most needs you, and new-session is one swipe up (the list wraps).
     const items: (Pane | null)[] = [...s.panes, null]
-    const hi = listRow(s, nav.highlightedIndex)
+    const hi = listRow(s)
     const VIS = 8
     const pages = Math.max(1, Math.ceil(items.length / VIS))
     const page = Math.min(pages, Math.floor(hi / VIS) + 1)
@@ -119,11 +122,11 @@ const listScreen: GlassScreen<AppState, Ctx> = {
       items,
       highlightedIndex: hi,
       maxVisible: VIS,
-      // tag (project) first — it's the disambiguator across ~35 sessions; only the long title clips.
-      // ▶ marks the selected row by TEXT (columns page mode flattens the line highlight style); the
-      // 3-space else keeps rows aligned. Marker is inside truncateGlassText so width still fits ~568px.
+      // tag (project) first — it's the disambiguator across ~35 sessions; only the long title clips
+      // (to LIST_PX, leaving the right side for the preview). ▶ marks the selected row by TEXT (columns
+      // page mode flattens the line highlight style); the 3-space else keeps rows aligned.
       formatter: (it, i) =>
-        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${it.pinned ? PIN : ''}${it.done ? '»' : (GLYPH[it.status] ?? '·')} ${it.tag}  ${it.label}` : '＋ new session'}`),
+        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${it.pinned ? PIN : ''}${it.done ? '»' : (GLYPH[it.status] ?? '·')} ${it.tag}  ${it.label}` : '＋ new session'}`, LIST_PX),
     })
     // The header must stay ONE line (a wrapped header pushes the list past the 10-line screen): with
     // every count in double digits the full bar is ~600px, so drop the least urgent counts to fit.
@@ -138,7 +141,7 @@ const listScreen: GlassScreen<AppState, Ctx> = {
     // unconfigured app off the network (a tap used to start the new-session flow and fetch).
     if (!isConfigured() || s.loading || s.error) return nav
     // the highlight is anchored to a session id (store.listSel), so resolve the row from that
-    const rows = listRows(s), hi = listRow(s, nav.highlightedIndex)
+    const rows = listRows(s), hi = listRow(s)
     if (a.type === 'HIGHLIGHT_MOVE') {
       // wrap around: swipe up from the first row jumps to the last, and vice versa —
       // the fast way to reach the far end of a long fleet without a page-jump gesture.
@@ -154,6 +157,17 @@ const listScreen: GlassScreen<AppState, Ctx> = {
     }
     return nav
   },
+}
+
+// The second column: a preview of the highlighted session beside the list rows. Both columns share
+// the display, so EVERY other screen must send a blank here or the last preview stays drawn over it.
+export function listPreview(s: AppState, screen: string): string {
+  if (screen !== 'list' || !isConfigured() || s.loading || s.error) return ' '
+  const p = s.panes[listRow(s)]
+  const body = !p ? ['Start a new Claude session', 'in a project folder.']
+    : [...(p.status === 'waiting' ? ['! needs you — tap to read'] : []), ...s.preview]
+  // two blank lines keep it clear of the header + rule, which run the full width
+  return ['', '', ...body.slice(0, 8).map((l) => '| ' + l)].join('\n')
 }
 
 const detailScreen: GlassScreen<AppState, Ctx> = {
@@ -245,7 +259,7 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
     const win = s.lines.slice(top, top + slots)
     const up = top > 0 ? '▲' : ' '
     const dn = top + slots < s.lines.length ? '▼' : ' '
-    const wk = s.working ? ' ⋯' : ''
+    const wk = s.working ? ' ●' : ''  // ● = working, as in the list (⋯ is not in the G2 font, it drew blank)
     const talk = s.voiceOn ? 'tap=talk' : 'tap=type'
     const pos = s.lines.length > slots ? ` ${Math.min(top + slots, s.lines.length)}/${s.lines.length}` : ''
     const head = s.status ? `${title}  ${s.status}` : `${title}${wk}  ${up}${dn}${pos}  ${talk}`

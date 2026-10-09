@@ -6,6 +6,16 @@ project memory; this file is the short "what changed" for each build.
 > Builds: G2C ships as a single **public** `.ehpk` — it bakes no secrets, so every user
 > enters their own backend URL + token on the app's Setup screen.
 
+## 1.0.39 — 2026-10-09
+- **Preview beside the list.** The right half of the session list now shows the highlighted
+  session's latest exchange — your last prompt and the end of the reply — so you can tell what a
+  session is doing, or what it concluded, without opening it. A session that needs you says so.
+  Session names are clipped to make room. It appears once your swipes settle, so scrolling through
+  the list costs one request rather than one per row, and it needs no backend update.
+- **Fix: the "working" indicator was invisible.** It used a glyph the glasses' font doesn't have,
+  so it drew blank in the session header and on the live activity line. It is now ●, the same
+  mark the list uses for a working session.
+
 ## 1.0.38 — 2026-10-08
 - **New name: G2C** (was TMUXor). Display name only — same app and package id, so it updates in
   place and keeps your settings; the `tmuxor:` setup code from `install.sh` still works.

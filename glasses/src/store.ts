@@ -3,7 +3,7 @@
 //   view (scroll live pane, or MENU mode if the pane is asking) -> listening (mic) -> confirm (send).
 import { listPanes, paneScreen, paneConversation, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
 import { GlassBridgeSource } from 'even-toolkit/stt'
-import { getTextWidth } from 'even-toolkit/pretext'
+import { getTextWidth, truncateGlassText } from 'even-toolkit/pretext'
 import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins } from './config'
 
 export type Phase = 'view' | 'listening' | 'confirm'
@@ -21,6 +21,8 @@ export interface AppState {
   loading: boolean
   error: string | null
   listSel: string   // highlighted list row, by pane id (see listRow); '' = none yet -> the top row at launch
+  listPos: number   // the row it was last on — where the highlight stays if that session disappears
+  preview: string[] // the highlighted session's latest exchange, shown beside the list (pre-wrapped)
   activePaneN: string | null
   activeLabel: string
   activeIsClaude: boolean
@@ -61,7 +63,7 @@ export interface AppState {
 }
 
 let state: AppState = {
-  panes: [], loading: true, error: null, listSel: '',
+  panes: [], loading: true, error: null, listSel: '', listPos: 0, preview: [],
   activePaneN: null, activeLabel: '', activeIsClaude: false, activeCwd: '',
   lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], asleep: false,
   phase: 'view', draft: '', draftKind: null, busy: false, status: '', typingText: '', draftLines: [], confirmScroll: 0, lastCost: 0, totalCost: 0,
@@ -95,13 +97,74 @@ export function idleTick() {
 // session between the swipe that highlights it and the tap that opens it.
 const NEW_ROW = '+'  // pseudo-id of the "＋ new session" row (always last)
 export function listRows(s: AppState): string[] { return [...s.panes.map((p) => p.n), NEW_ROW] }
-// Row of the anchored selection. If that session is gone (or nothing is chosen yet), stay at
-// `fallback` — the row the highlight was last on.
-export function listRow(s: AppState, fallback = 0): number {
+// Row of the anchored selection. If that session is gone (or nothing is chosen yet), stay on the
+// row the highlight was last on.
+export function listRow(s: AppState): number {
   const rows = listRows(s), i = rows.indexOf(s.listSel)
-  return i >= 0 ? i : Math.max(0, Math.min(fallback, rows.length - 1))
+  return i >= 0 ? i : Math.max(0, Math.min(s.listPos, rows.length - 1))
 }
-export function selectRow(n: string) { if (n !== state.listSel) set({ listSel: n }) }
+export function selectRow(n: string) {
+  if (n !== state.listSel) set({ listSel: n, listPos: Math.max(0, listRows(state).indexOf(n)) })
+  showPreview()
+}
+// A new pane list: keep the selection on a row that exists — the same session if it is still
+// listed, else whatever now sits on the row it was on — so `listSel` always names the highlighted
+// row (the preview and the pin menu act on it). With no sessions yet it stays unset, so the list
+// still opens on the first session when they arrive.
+function withSel(panes: Pane[]): Partial<AppState> {
+  const rows = [...panes.map((p) => p.n), NEW_ROW]
+  let i = rows.indexOf(state.listSel)
+  if (i < 0) { if (!panes.length) return { panes }; i = Math.max(0, Math.min(state.listPos, rows.length - 1)) }
+  return { panes, listSel: rows[i], listPos: i }
+}
+
+// --- list preview: the highlighted session's latest exchange, drawn beside the list ---
+// Shown from a per-session cache at once, then re-checked (cheap: etag) once the swipes settle and
+// on every list poll. The settle delay is longer than the fastest swipe cadence (even-toolkit drops
+// same-direction repeats inside 350ms), so scrolling down the list costs one request, not one per row. Frontend-only — it reuses the conversation endpoint, so no backend update.
+const PREVIEW_PX = 236  // text width of the preview column (screens.ts listPreview / AppGlasses columns)
+const PREVIEW_ROWS = 8  // the lines beside the list rows, under the header
+const NO_PREVIEW: string[] = []
+const previewCache = new Map<string, { etag: string | null; lines: string[] }>()
+let previewTimer: ReturnType<typeof setTimeout> | null = null
+// The prompt (one clipped line), then the END of the reply to it — where the session stands now,
+// which is what you triage on (a finished session's conclusion, or its question to you).
+function previewOf(turns: Turn[], working: boolean): string[] {
+  let u = -1
+  for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === 'user') { u = i; break }
+  const head = u >= 0 ? [truncateGlassText('▶ ' + turns[u].text.split('\n')[0], PREVIEW_PX)] : []
+  const paras = turns.slice(u + 1).filter((t) => t.role === 'assistant').flatMap((t) => t.text.split('\n')).filter((l) => l.trim())
+  if (working) paras.push('● working…')
+  // Fill the space from the END of the reply: whole paragraphs while they fit, then the tail of the
+  // next one, marked … so it doesn't read as the start of a sentence.
+  const room = PREVIEW_ROWS - head.length
+  let reply: string[] = []
+  for (const para of paras.reverse()) {
+    const w = wrapPx(para, '', PREVIEW_PX), free = room - reply.length
+    if (w.length <= free) { reply = [...w, ...reply]; continue }
+    if (free > 0) { const tail = w.slice(-free); tail[0] = '… ' + tail[0]; reply = [...tail, ...reply] }
+    break
+  }
+  return [...head, ...reply]
+}
+function showPreview() {
+  const n = state.listSel
+  const lines = previewCache.get(n)?.lines ?? NO_PREVIEW
+  if (lines !== state.preview) set({ preview: lines })
+  if (previewTimer) clearTimeout(previewTimer)
+  // only while the list is on screen, and only for a session that is on it (a request for a pane
+  // that is gone would return a 4xx)
+  if (!isConfigured() || state.activePaneN || state.asleep || !state.panes.some((p) => p.n === n)) return
+  const gen = fleetGen
+  previewTimer = setTimeout(() => {
+    paneConversation(n, previewCache.get(n)?.etag).then((r) => {
+      if (r.notModified || gen !== fleetGen) return
+      const lines = previewOf(r.turns, r.working)
+      previewCache.set(n, { etag: r.etag, lines })
+      if (state.listSel === n) set({ preview: lines })
+    }).catch(() => {})
+  }, 600)
+}
 
 const ORDER: Record<string, number> = { waiting: 0, working: 1, done: 2, idle: 3, other: 4 }
 // Panes that went working -> idle and haven't been opened yet: they stay pinned in a top "done"
@@ -134,7 +197,7 @@ export function togglePin(n: string) {
 function repaintPanes() {
   const panes = decorateAndSort(state.panes)
   const sig = JSON.stringify(panes)
-  if (sig !== lastPanesSig) { lastPanesSig = sig; set({ panes }) }
+  if (sig !== lastPanesSig) { lastPanesSig = sig; set(withSel(panes)) }
 }
 let fleetGen = 0 // bumped on a backend switch so an in-flight poll from the OLD source is discarded
 export async function refresh() {
@@ -148,6 +211,7 @@ export async function refresh() {
     if (gen !== fleetGen) return // source changed while this poll was in flight -> stale namespace
     const present = new Set(raw.map((p) => p.n))
     for (const n of finished) if (!present.has(n)) finished.delete(n)  // pane gone -> drop the mark
+    for (const n of previewCache.keys()) if (!present.has(n)) previewCache.delete(n)
     for (const p of raw) {
       if (prevStatus.get(p.n) === 'working' && p.status === 'idle') finished.add(p.n)  // just finished -> pin as "done"
       else if (p.status !== 'idle') finished.delete(p.n)                                // re-activated -> no longer "done"
@@ -159,9 +223,10 @@ export async function refresh() {
     prevStatus = new Map(raw.map((p) => [p.n, p.status]))
     const panes = decorateAndSort(raw)
     const sig = JSON.stringify(panes)
-    if (sig !== lastPanesSig) { lastPanesSig = sig; set({ panes, loading: false, error: null }) }  // skip identical re-push
+    if (sig !== lastPanesSig) { lastPanesSig = sig; set({ ...withSel(panes), loading: false, error: null }) }  // skip identical re-push
     else if (state.loading || state.error) set({ loading: false, error: null })
     health().then((h) => set({ voiceOn: h.voice, voiceChecked: h.checked || [] })).catch(() => {})
+    showPreview()  // keep the highlighted session's preview current
   } catch (e) { if (gen === fleetGen) set({ loading: false, error: String(e) }) }
 }
 
@@ -298,19 +363,19 @@ function cleanLines(raw: string[]): string[] {
 // so the firmware re-wrapped it on screen, leaving a stray short remainder ("wrapped early
 // sometimes"). 548 matches the answer view's proven-good option width and keeps a safe margin.
 const WRAP_PX = 548
-function wrapPx(line: string, indent = ''): string[] {
-  if (getTextWidth(line) <= WRAP_PX) return [line]
+function wrapPx(line: string, indent = '', width = WRAP_PX): string[] {
+  if (getTextWidth(line) <= width) return [line]
   const out: string[] = []
   let cur = ''
   for (const w of line.split(' ')) {
     const trial = cur === '' ? w : cur + ' ' + w
-    if (getTextWidth(trial) <= WRAP_PX) { cur = trial; continue }
+    if (getTextWidth(trial) <= width) { cur = trial; continue }
     if (cur !== '') out.push(cur)
-    if (getTextWidth(indent + w) > WRAP_PX) {
+    if (getTextWidth(indent + w) > width) {
       let r = indent + w
-      while (getTextWidth(r) > WRAP_PX) {
+      while (getTextWidth(r) > width) {
         let lo = 1, hi = r.length, k = 1
-        while (lo <= hi) { const mid = (lo + hi) >> 1; if (getTextWidth(r.slice(0, mid)) <= WRAP_PX) { k = mid; lo = mid + 1 } else hi = mid - 1 }
+        while (lo <= hi) { const mid = (lo + hi) >> 1; if (getTextWidth(r.slice(0, mid)) <= width) { k = mid; lo = mid + 1 } else hi = mid - 1 }
         out.push(r.slice(0, k)); r = indent + r.slice(k)
       }
       cur = r
@@ -403,7 +468,7 @@ function buildView() {
   const raw = [...convoLines]
   if (state.working) {
     if (raw.length) raw.push('')
-    raw.push(...wrapPx(state.activity ? '⋯ ' + state.activity : '⋯ working…'))
+    raw.push(...wrapPx(state.activity ? '● ' + state.activity : '● working…'))  // ● = working, as in the list (⋯ is not in the G2 font)
   }
   const lines = raw.length ? raw : ['(no replies yet)']
   const ms = maxScroll(lines.length, VIEW_SLOTS)
@@ -559,6 +624,7 @@ export function closePane() {
     if (finished.delete(state.activePaneN)) repaintPanes()
   }
   closeStream(); stopAnswers(); stopMic(); set({ activePaneN: null, phase: 'view' })
+  showPreview()  // back on the list: show what the session we just left says now
 }
 
 // Switching backend (tmux <-> herdr) changes the pane-id namespace, so the open pane view, the
@@ -571,8 +637,9 @@ export function resetForSourceChange() {
   finished.clear()
   prevStatus = new Map()
   paneMem.clear()
+  previewCache.clear()
   lastPanesSig = ''
-  set({ panes: [], loading: true, error: null, listSel: '' })
+  set({ panes: [], loading: true, error: null, listSel: '', listPos: 0, preview: NO_PREVIEW })
   refresh()
 }
 
@@ -796,7 +863,7 @@ export async function sendNow() {
   try {
     await sendToPane(n, state.draft, true)
     // "working…" only applies to a Claude pane (it's processing your prompt); a shell pane has no such
-    // state, so setting working:true + buildView would clobber its live screen with a permanent '⋯'.
+    // state, so setting working:true + buildView would clobber its live screen with a permanent '● working…'.
     const claude = state.activeIsClaude
     set({ phase: 'view', atBottom: true, working: claude, busy: false, status: '', draft: '', draftKind: null })
     if (claude) buildView()

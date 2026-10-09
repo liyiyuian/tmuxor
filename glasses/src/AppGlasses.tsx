@@ -10,7 +10,7 @@ import {
   startNewSession, moveNewTag, chooseNewTag, stopNewTagVoice, stopNewVoice, retryNewVoice, createNewSession, cancelNewSession,
   type AppState,
 } from './store'
-import { router, type Ctx } from './screens'
+import { router, listPreview, type Ctx } from './screens'
 import { line, type GlassNavState } from 'even-toolkit/types'
 
 // root double-tap -> hand off to the foreground layer's system exit dialog (exitMode 1)
@@ -48,7 +48,7 @@ let lastNav: GlassNavState = { screen: 'list', highlightedIndex: 0 }
 function pinFromMenu() {
   const s = getSnapshot()
   noteActivity()
-  const n = s.activePaneN ?? (lastNav.screen === 'list' ? listRows(s)[listRow(s, lastNav.highlightedIndex)] : '')
+  const n = s.activePaneN ?? (lastNav.screen === 'list' ? listRows(s)[listRow(s)] : '')
   if (n) togglePin(n)
 }
 
@@ -87,10 +87,12 @@ export function App() {
   useGlasses<AppState>({
     appName: 'G2C',
     getSnapshot,
-    columns: [{ x: 0, w: 576 }], // single full-width column => flush-left, no 2-space prefix
+    // column 1 = the whole screen (flush-left, no 2-space prefix); column 2 overlaps its right side
+    // and carries only the list's preview (blank on every other screen — see listPreview).
+    columns: [{ x: 0, w: 576 }, { x: 300, w: 276 }],
     // asleep -> push a blank (single space) so the HUD goes dark; wake on the next gesture.
     toDisplayData: (s, nav) => (s.asleep ? { lines: [line(' ', 'meta')] } : router.toDisplayData(s, nav)),
-    toColumns: (s, nav) => (s.asleep ? { columns: [' '] } : { columns: [router.toDisplayData(s, nav).lines.map((l) => l.text).join('\n')] }),
+    toColumns: (s, nav) => (s.asleep ? { columns: [' ', ' '] } : { columns: [router.toDisplayData(s, nav).lines.map((l) => l.text).join('\n'), listPreview(s, nav.screen)] }),
     onGlassAction: (a, nav, s) => {
       const wasAsleep = getSnapshot().asleep
       noteActivity()              // any gesture resets the idle timer (and wakes a sleeping HUD)
