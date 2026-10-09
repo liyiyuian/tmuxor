@@ -199,6 +199,9 @@ def summarize_exchange(prompt, reply):
                  "anthropic-version": "2023-06-01"}, method="POST")
     with urllib.request.urlopen(req, timeout=25) as r:
         data = json.loads(r.read().decode())
+    # one line per model call (it costs money): how often and how big, never the content
+    u = data.get("usage") or {}
+    print(f"[summary] {SUMMARY_MODEL} in={u.get('input_tokens')} out={u.get('output_tokens')} stop={data.get('stop_reason')}", flush=True)
     if data.get("stop_reason") == "refusal":  # a safety decline is a normal 200 — no text to use
         return None
     # the response can start with thinking blocks: read text blocks by type, never by position
@@ -297,6 +300,29 @@ def summary_for(src, p):
         _SUM_BUSY.add(pid)
     _SUM_POOL.submit(_summarize_job, pid, jsonl, etag)
     return {"pending": True, "etag": etag}
+
+
+# --- client error reports: one looping phone must not flood the journal ---
+# On 2026-10-09 a single phone sent ~9,000 identical reports a minute. Print a message the first
+# time; while the SAME message keeps arriving just count it, and say how many at most once a minute.
+_CL_LOCK = threading.Lock()
+_cl = {"msg": None, "n": 0, "t": 0.0}
+
+
+def _clientlog(msg):
+    now = time.time()
+    with _CL_LOCK:
+        if msg == _cl["msg"]:
+            _cl["n"] += 1
+            if now - _cl["t"] < 60:
+                return
+            print(f"[clientlog] (same report {_cl['n']} more times)", flush=True)
+            _cl["n"], _cl["t"] = 0, now
+            return
+        if _cl["n"]:
+            print(f"[clientlog] (same report {_cl['n']} more times)", flush=True)
+        _cl["msg"], _cl["n"], _cl["t"] = msg, 0, now
+    print("[clientlog] " + msg, flush=True)
 
 
 WHISPER_USD_PER_MIN = 0.006  # OpenAI whisper-1 pricing
@@ -616,7 +642,7 @@ class Handler(BaseHTTPRequestHandler):
             # the glasses app POSTs uncaught JS errors here so they land in the service journal
             # (journalctl --user -u tmux-conductor) — turns a mysterious app "quit" into a readable
             # error+stack. Just logs a bounded string; no execution, no injection surface.
-            print("[clientlog] " + str(body.get("msg", ""))[:4000], flush=True)
+            _clientlog(str(body.get("msg", ""))[:4000])
             return self._json(200, {"ok": True})
         if path == "/api/translate":
             desc = body.get("description", "")

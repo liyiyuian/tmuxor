@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -17,6 +18,8 @@ const stripDeadUrls: Plugin = {
 }
 
 export default defineConfig({
+  // the build's own version, so an error report says which build it came from
+  define: { __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync('app.json', 'utf8')).version) },
   plugins: [react(), stripDeadUrls],
   base: './', // relative asset paths for the packaged webview
   server: { host: true, port: 5173 },

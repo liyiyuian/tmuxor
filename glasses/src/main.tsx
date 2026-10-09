@@ -8,9 +8,25 @@ import { subscribe, getSnapshot, submitTypedInput, setTypingText, cancelInput, c
 
 // Capture uncaught errors so a crash is DIAGNOSABLE instead of a silent "quit": stash the last
 // one in localStorage (shown in Setup) and best-effort POST it to the backend journal.
+//
+// A report must never be able to cause, or keep pace with, a stream of errors. On 2026-10-09 an
+// error that repeated without end on a real phone was reported every time: ~9,000 POSTs a minute.
+// So: at most one report per distinct message per minute, at most REPORT_CAP per launch, and
+// every report carries how many errors there have been — the count shows a loop without feeding it.
+const REPORT_CAP = 20
+const reportedAt = new Map<string, number>()
+const launchedAt = Date.now()
+let errorCount = 0
+let reports = 0
 function reportClientError(kind: string, err: unknown) {
+  errorCount++
+  const now = Date.now()
   const e = err as { message?: string; stack?: string } | undefined
-  const msg = `${kind}: ${(e && (e.message || String(err))) || String(err)}\n${(e && e.stack) || ''}`.slice(0, 4000)
+  const head = `${kind}: ${(e && (e.message || String(err))) || String(err)}`.slice(0, 300)
+  if (reports >= REPORT_CAP || now - (reportedAt.get(head) ?? -Infinity) < 60_000) return
+  reportedAt.set(head, now)
+  reports++
+  const msg = `${head}\n${(e && e.stack) || ''}\n[error #${errorCount}, ${Math.round((now - launchedAt) / 1000)}s after launch, build ${__APP_VERSION__}, ${navigator.userAgent}]`.slice(0, 4000)
   try { localStorage.setItem('conductor.lastError', msg) } catch { /* quota */ }
   try {
     const { base, token } = getConfig()
