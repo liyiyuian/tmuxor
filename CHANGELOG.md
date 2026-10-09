@@ -12,6 +12,13 @@ project memory; this file is the short "what changed" for each build.
   session is doing, or what it concluded, without opening it. A session that needs you says so.
   Session names are clipped to make room. It appears once your swipes settle, so scrolling through
   the list costs one request rather than one per row, and it needs no backend update.
+- **Optional AI summaries (off by default).** If your backend has your own Anthropic API key, the
+  phone's settings offer "Summarize list previews with Claude Haiku". When on, the preview shows a
+  one-line summary (marked `~`) that leads with what the session is waiting on. Your backend sends
+  the highlighted session's latest request and the end of its reply to Anthropic under your key:
+  once per change, never while the session is still working, and never again for a transcript that
+  was declined or failed. Needs the updated backend (`conductor_api.py`); without it, or with the
+  switch off, you get the plain preview and no extra requests.
 - **Fix: the "working" indicator was invisible.** It used a glyph the glasses' font doesn't have,
   so it drew blank in the session header and on the live activity line. It is now ●, the same
   mark the list uses for a working session.

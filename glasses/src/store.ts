@@ -1,10 +1,10 @@
 // External store + actions for the glasses control flow.
 // Screens: list <-> detail. Within detail, a phase drives the sub-state:
 //   view (scroll live pane, or MENU mode if the pane is asking) -> listening (mic) -> confirm (send).
-import { listPanes, paneScreen, paneConversation, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
+import { listPanes, paneScreen, paneConversation, paneSummary, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
 import { GlassBridgeSource } from 'even-toolkit/stt'
 import { getTextWidth, truncateGlassText } from 'even-toolkit/pretext'
-import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins } from './config'
+import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins, getAiSummary } from './config'
 
 export type Phase = 'view' | 'listening' | 'confirm'
 const SLOTS = 9
@@ -39,6 +39,7 @@ export interface AppState {
   activity: string
   voiceOn: boolean   // backend has an OpenAI key -> voice replies available
   voiceChecked: string[]  // when voice off, the locations the backend checked for a key
+  canSummarize: boolean   // backend has an Anthropic key -> AI preview summaries can be offered (opt-in)
   asleep: boolean    // glasses HUD blanked after inactivity (idle screen-sleep)
   phase: Phase
   draft: string
@@ -65,7 +66,7 @@ export interface AppState {
 let state: AppState = {
   panes: [], loading: true, error: null, listSel: '', listPos: 0, preview: [],
   activePaneN: null, activeLabel: '', activeIsClaude: false, activeCwd: '',
-  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], asleep: false,
+  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], canSummarize: false, asleep: false,
   phase: 'view', draft: '', draftKind: null, busy: false, status: '', typingText: '', draftLines: [], confirmScroll: 0, lastCost: 0, totalCost: 0,
   newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newCreate: false, newStatus: '', newPaneN: null,
 }
@@ -125,11 +126,15 @@ function withSel(panes: Pane[]): Partial<AppState> {
 const PREVIEW_PX = 236  // text width of the preview column (screens.ts listPreview / AppGlasses columns)
 const PREVIEW_ROWS = 8  // the lines beside the list rows, under the header
 const NO_PREVIEW: string[] = []
-const previewCache = new Map<string, { etag: string | null; lines: string[] }>()
+// per session: the prompt line (`head`), the reply tail (`raw`), what is on screen (`lines`), and —
+// when AI summaries are on — the transcript state a summary was last settled for (`sumFor`), so the
+// backend is asked once per state.
+interface Preview { etag: string | null; head: string[]; raw: string[]; working: boolean; lines: string[]; sumFor?: string | null }
+const previewCache = new Map<string, Preview>()
 let previewTimer: ReturnType<typeof setTimeout> | null = null
 // The prompt (one clipped line), then the END of the reply to it — where the session stands now,
 // which is what you triage on (a finished session's conclusion, or its question to you).
-function previewOf(turns: Turn[], working: boolean): string[] {
+function previewOf(turns: Turn[], working: boolean): { head: string[]; raw: string[] } {
   let u = -1
   for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === 'user') { u = i; break }
   const head = u >= 0 ? [truncateGlassText('▶ ' + turns[u].text.split('\n')[0], PREVIEW_PX)] : []
@@ -145,7 +150,7 @@ function previewOf(turns: Turn[], working: boolean): string[] {
     if (free > 0) { const tail = w.slice(-free); tail[0] = '… ' + tail[0]; reply = [...tail, ...reply] }
     break
   }
-  return [...head, ...reply]
+  return { head, raw: reply }
 }
 function showPreview() {
   const n = state.listSel
@@ -156,13 +161,33 @@ function showPreview() {
   // that is gone would return a 4xx)
   if (!isConfigured() || state.activePaneN || state.asleep || !state.panes.some((p) => p.n === n)) return
   const gen = fleetGen
-  previewTimer = setTimeout(() => {
-    paneConversation(n, previewCache.get(n)?.etag).then((r) => {
-      if (r.notModified || gen !== fleetGen) return
-      const lines = previewOf(r.turns, r.working)
-      previewCache.set(n, { etag: r.etag, lines })
-      if (state.listSel === n) set({ preview: lines })
-    }).catch(() => {})
+  previewTimer = setTimeout(async () => {
+    try {
+      const r = await paneConversation(n, previewCache.get(n)?.etag)
+      if (gen !== fleetGen) return
+      let c = previewCache.get(n)
+      if (!r.notModified) {
+        const { head, raw } = previewOf(r.turns, r.working)
+        c = { etag: r.etag, head, raw, working: r.working, lines: [...head, ...raw] }
+        previewCache.set(n, c)
+        if (state.listSel === n) set({ preview: c.lines })
+      }
+      // Opt-in AI summary (the user's own Anthropic key, on their backend): replaces the reply tail
+      // with one status line, marked ~. Asked once per transcript state, never while the session
+      // is still working, and only of a backend that says it can (so an older one gets no request).
+      if (!c || !c.etag || c.working || c.sumFor === c.etag || !getAiSummary() || !state.canSummarize) return
+      const s = await paneSummary(n)
+      if (gen !== fleetGen || s.etag !== c.etag) return
+      if (s.pending) {  // being written (a couple of seconds) -> look again soon, if still on this row
+        previewTimer = setTimeout(() => { if (state.listSel === n) showPreview() }, 2500)
+        return
+      }
+      c.sumFor = c.etag  // settled for this transcript, with or without a summary
+      if (s.summary) {
+        c.lines = [...c.head, ...wrapPx('~ ' + s.summary, '', PREVIEW_PX).slice(0, PREVIEW_ROWS - c.head.length)]
+        if (state.listSel === n) set({ preview: c.lines })
+      }
+    } catch { /* offline, or the request failed: the plain preview stays */ }
   }, 600)
 }
 
@@ -225,7 +250,7 @@ export async function refresh() {
     const sig = JSON.stringify(panes)
     if (sig !== lastPanesSig) { lastPanesSig = sig; set({ ...withSel(panes), loading: false, error: null }) }  // skip identical re-push
     else if (state.loading || state.error) set({ loading: false, error: null })
-    health().then((h) => set({ voiceOn: h.voice, voiceChecked: h.checked || [] })).catch(() => {})
+    health().then((h) => set({ voiceOn: h.voice, voiceChecked: h.checked || [], canSummarize: !!h.summary })).catch(() => {})
     showPreview()  // keep the highlighted session's preview current
   } catch (e) { if (gen === fleetGen) set({ loading: false, error: String(e) }) }
 }

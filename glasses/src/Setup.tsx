@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getSource, setSource } from './config'
+import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getSource, setSource, getAiSummary, setAiSummary } from './config'
 import { listPanes, health } from './api'
 import { subscribe, getSnapshot, resetForSourceChange, togglePin } from './store'
 
@@ -29,6 +29,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [keyPath, setKeyPath] = useState(getOpenaiKeyPath())
   const [idleSec, setIdleSec] = useState(String(getIdleSleepSec()))
   const [wakeChange, setWakeChange] = useState(getWakeOnChange())
+  const [aiSummary, setAi] = useState(getAiSummary())
   const [source, setSrc] = useState(getSource())
   const [sources, setSources] = useState<string[]>([])   // what the backend can serve
   const [defSource, setDefSource] = useState('')          // the backend's own default
@@ -66,6 +67,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
     setOpenaiKeyPath(keyPath)
     setIdleSleepSec(Number(idleSec) || 0)
     setWakeOnChange(wakeChange)
+    setAiSummary(aiSummary)
     setSource(source)
     try {
       await listPanes()
@@ -181,6 +183,19 @@ export function Setup({ onSave }: { onSave: () => void }) {
           <input type="checkbox" checked={wakeChange} onChange={(e) => setWakeChange(e.target.checked)} />
           Wake the glasses when a session finishes or needs input
         </label>
+
+        {live.canSummarize && (
+          <>
+            <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={aiSummary} onChange={(e) => setAi(e.target.checked)} />
+              Summarize list previews with Claude Haiku (uses your Anthropic API key)
+            </label>
+            <p style={{ color: '#6f8a7b', fontSize: 12, margin: '2px 0 0', lineHeight: 1.4 }}>
+              Off by default. When on, your backend sends the highlighted session’s latest request and reply to Anthropic and
+              the preview shows a one-line summary (marked ~) instead of the raw text. Each summary is a small request billed to your key.
+            </p>
+          </>
+        )}
 
         {err && <p style={{ color: '#ff8a8a', fontSize: 13 }}>{err}</p>}
         <button style={btn} onClick={save} disabled={busy}>{busy ? 'Connecting…' : 'Save & connect'}</button>

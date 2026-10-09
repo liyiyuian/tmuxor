@@ -50,7 +50,8 @@ export async function listPanes(claudeOnly = true): Promise<Pane[]> {
 const keyPathQ = () => { const p = getOpenaiKeyPath(); return p ? `keypath=${encodeURIComponent(p)}` : '' }
 // `sources` = which backends this machine can serve (authed-only); `source` = its default.
 // The phone shows a picker only when >1 is offered; absent (older backend) => tmux only.
-export async function health(): Promise<{ ok: boolean; voice: boolean; checked?: string[]; sources?: string[]; source?: string }> {
+// `summary` = the backend has an Anthropic key and can write AI summaries (it only does when asked).
+export async function health(): Promise<{ ok: boolean; voice: boolean; checked?: string[]; sources?: string[]; source?: string; summary?: boolean }> {
   const r = await fetch(`${base()}/api/health${qs(keyPathQ())}`, { headers: authHeaders() })
   if (!r.ok) throw new Error(`health ${r.status}`)
   return r.json()
@@ -76,6 +77,14 @@ export async function paneConversation(n: string, etag?: string | null): Promise
   const data = await r.json()
   if (data.notModified) return { turns: [], working: false, etag: data.etag ?? etag ?? null, notModified: true }
   return { turns: data.turns, working: data.working, etag: data.etag ?? null, notModified: false }
+}
+
+// Opt-in AI summary of a session's latest exchange (written by the backend with the user's own
+// Anthropic key). `pending` = it is being written, ask again; `etag` = the transcript state it is for.
+export async function paneSummary(n: string): Promise<{ summary?: string | null; pending?: boolean; etag?: string | null }> {
+  const r = await fetch(`${base()}/api/panes/${pid(n)}/summary${qs(srcParam())}`, { headers: authHeaders(), cache: 'no-store' })
+  if (!r.ok) throw new Error(`paneSummary ${r.status}`)
+  return r.json()
 }
 
 export async function sendToPane(n: string, text: string, submit = true): Promise<void> {

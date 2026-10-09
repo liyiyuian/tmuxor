@@ -54,7 +54,8 @@ CONDUCTOR_TOKEN=PASTE_A_LONG_RANDOM_TOKEN_HERE
 # REQUIRED for voice — OpenAI Whisper transcription
 OPENAI_API_KEY=sk-...
 
-# OPTIONAL — only for plain shell panes (speech -> shell command)
+# OPTIONAL — your own Anthropic key. Used for plain shell panes (speech -> shell command) and,
+# only if you turn it on in the app, for AI summaries in the list preview (Claude Haiku).
 ANTHROPIC_API_KEY=sk-ant-...
 
 # OPTIONAL overrides (defaults shown)
@@ -194,6 +195,12 @@ Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe =
   pinned (**★**) first, then finished (**»**) until you open them. Swipe to move, tap to open,
   double-tap to exit. The last row is **＋ new session** (one swipe up from the top). The right
   half of the screen previews the highlighted session's last prompt and the end of its reply.
+- **AI summaries (optional, off by default)** — with `ANTHROPIC_API_KEY` set on the backend, the
+  phone's **Connection & settings** shows “Summarize list previews with Claude Haiku”. Turn it on
+  and the preview shows a one-line summary (marked `~`) instead of the raw reply. Your backend sends
+  the highlighted session's latest request and the end of its reply (up to 6,000 characters) to
+  Anthropic under your key — once per change, never while the session is still working. Each
+  summary is one small Claude Haiku request (a few hundred to ~2,000 input tokens).
 - **Pin a session** — tap ★ next to it on the phone. Or on the glasses: highlight it in the
   session list, tap then press-and-hold to open the system menu, and choose **Pin / unpin
   session** (Even app 2.2.10+).
