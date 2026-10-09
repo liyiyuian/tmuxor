@@ -264,10 +264,12 @@ def _summarize_job(pid, jsonl, etag):
         if reply:
             result = summarize_exchange(turns[u]["text"][:SUMMARY_PROMPT_CHARS] if u >= 0 else "", reply[-SUMMARY_MAX_CHARS:])
     except urllib.error.HTTPError as e:
+        print(f"[summary] {SUMMARY_MODEL} failed: HTTP {e.code}", flush=True)   # a failed call must be visible too
         if e.code == 429 or e.code >= 500:   # transient: try this transcript again, but not for a minute
             keep, _sum_retry_at = False, time.time() + 60
         # any other 4xx (bad key, bad request) won't fix itself for this transcript -> remember "nothing"
-    except Exception:                        # network down / timeout: same, shorter pause
+    except Exception as e:                   # network down / timeout: same, shorter pause
+        print(f"[summary] {SUMMARY_MODEL} failed: {type(e).__name__}", flush=True)
         keep, _sum_retry_at = False, time.time() + 30
     with _SUM_LOCK:
         _SUM_BUSY.discard(pid)

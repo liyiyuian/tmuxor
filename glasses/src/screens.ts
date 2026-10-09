@@ -172,10 +172,13 @@ export function listPreview(s: AppState, screen: string): string {
   // the title carries the full name — the row beside it is clipped to a third of the screen
   const title = truncateGlassText(p ? `${p.tag}  ${p.label}` : 'New session', PREVIEW_PX)
   // 6 lines under the rule. The "needs you" notice takes one; if the preview then no longer fits,
-  // keep its first line (the request) and the END of the reply — on a session that needs you, the
-  // end is the question.
+  // drop what matters least. A raw reply ENDS with its question, so keep the first line (the
+  // request) and the end. An AI summary (~) STARTS with what the session is waiting for, so keep
+  // the start.
   const wait = !!p && p.status === 'waiting', rows = wait ? 5 : 6
-  const pv = s.preview.length > rows ? [s.preview[0], ...s.preview.slice(1 - rows)] : s.preview
+  const pv = s.preview.length <= rows ? s.preview
+    : s.preview.some((l) => l.startsWith('~ ')) ? [...s.preview.slice(0, rows - 1), truncateGlassText(s.preview[rows - 1] + ' …', PREVIEW_PX)]
+    : [s.preview[0], ...s.preview.slice(1 - rows)]
   const body = !p ? ['Start a new Claude session', 'in a project folder.'] : [...(wait ? ['! needs you — tap to read'] : []), ...pv]
   // two blank lines keep it clear of the header, which runs the full width
   return ['', '', title, RULE, ...body].join('\n')
