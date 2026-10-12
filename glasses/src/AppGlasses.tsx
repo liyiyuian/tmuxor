@@ -11,6 +11,7 @@ import {
   type AppState,
 } from './store'
 import { router, listPreview, type Ctx } from './screens'
+import { getConfig } from './config'
 import { line, type GlassNavState } from 'even-toolkit/types'
 
 // root double-tap -> hand off to the foreground layer's system exit dialog (exitMode 1)
@@ -25,6 +26,35 @@ const bridge = EvenAppBridge.getInstance()
 // name before any listener (even-toolkit's included) sees it, so a future gesture can't do the same.
 const listen = bridge.onEvenHubEvent.bind(bridge)
 let lastHoldAt = 0
+
+// Gesture trace — DIAGNOSTIC BUILDS ONLY (VITE_TRACE=1 at build time; a normal build compiles it
+// out). Posts what the glasses send for each gesture, and what the app made of it, to the backend's
+// journal: event shapes and numbers, never text. Bounded: TRACE_MAX lines per launch, at most one
+// small POST a second, and only when there is something to send.
+const TRACE = !!import.meta.env.VITE_TRACE
+const TRACE_MAX = 300
+let traceBuf: string[] = [], traceN = 0, traceAt = Date.now()
+function trace(s: string) {
+  if (!TRACE || traceN >= TRACE_MAX) return
+  const now = Date.now(); traceBuf.push(`+${now - traceAt}ms ${s}`); traceAt = now; traceN++
+}
+const shape = (v: unknown, k = '', d = 0): unknown =>
+  typeof v === 'string' ? (/type|source/i.test(k) && v.length <= 40 ? v : `str${v.length}`)
+    : Array.isArray(v) ? `arr${v.length}`
+      : v && typeof v === 'object' ? (d > 3 ? 'obj' : Object.fromEntries(Object.entries(v).map(([kk, x]) => [kk, shape(x, kk, d + 1)])))
+        : v
+if (TRACE) {
+  listen((e) => {
+    if (e.audioEvent) return
+    const ev = e.listEvent ?? e.textEvent ?? e.sysEvent
+    trace(`EVENT ${e.listEvent ? 'list' : e.textEvent ? 'text' : e.sysEvent ? 'sys' : 'other'} type=${ev?.eventType} raw=${JSON.stringify(shape(e.jsonData ?? e))}`)
+  })
+  setInterval(() => {
+    if (!traceBuf.length) return
+    const c = getConfig(), msg = `TRACE build ${__BUILD__}\n` + traceBuf.splice(0).join('\n')
+    if (c.base && c.token) fetch(`${c.base}/api/clientlog`, { method: 'POST', headers: { Authorization: `Bearer ${c.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ msg }) }).catch(() => {})
+  }, 1000)
+}
 bridge.onEvenHubEvent = (cb) => listen((e) => {
   const ev = e.listEvent ?? e.textEvent ?? e.sysEvent
   if (ev && ev.eventType == null) {
@@ -36,7 +66,7 @@ bridge.onEvenHubEvent = (cb) => listen((e) => {
   // This wrapper runs once for EVERY listener (even-toolkit's and ours), so act on a hold once:
   // a second hold cannot follow the first within a fraction of a second.
   if (ev?.eventType === OsEventTypeList.LONG_PRESS_EVENT) {
-    if (Date.now() - lastHoldAt > 400) { lastHoldAt = Date.now(); onHold() }
+    if (Date.now() - lastHoldAt > 400) { lastHoldAt = Date.now(); trace('APP hold handled'); onHold() }
     return
   }
   if (ev?.eventType === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) return
@@ -132,6 +162,7 @@ export function App() {
     toDisplayData: (s, nav) => (s.asleep ? { lines: [line(' ', 'meta')] } : router.toDisplayData(s, nav)),
     toColumns: (s, nav) => (s.asleep ? { columns: [' ', ' '] } : { columns: [router.toDisplayData(s, nav).lines.map((l) => l.text).join('\n'), listPreview(s, nav.screen)] }),
     onGlassAction: (a, nav, s) => {
+      trace(`APP action ${a.type}${'direction' in a ? ' ' + a.direction : ''} on ${nav.screen}`)
       const wasAsleep = getSnapshot().asleep
       noteActivity()              // any gesture resets the idle timer (and wakes a sleeping HUD)
       if (wasAsleep) return nav   // the waking gesture only wakes — it doesn't also act
