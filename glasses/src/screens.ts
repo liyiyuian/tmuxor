@@ -41,6 +41,10 @@ export interface Ctx {
 // hollow = idle, » = working, filled = finished since you last opened it, ! = needs you.
 // A Codex session has a diamond where Claude has a circle.
 const GLYPH: Record<string, string> = { waiting: '!', working: '»', idle: '○', other: '·' }
+// The workspace tag in a list row. Beside the preview the row is a third of the screen, so the tag
+// is cut to its first character and the session's own name gets the room (the panel's title shows
+// the whole tag). A pinned session's tag is in CAPITALS: the font has no bold.
+const rowTag = (p: Pane) => { const t = getPreview() ? (Array.from(p.tag)[0] ?? '') : p.tag; return p.pinned ? t.toUpperCase() : t }
 const glyph = (p: Pane) => p.done ? (p.agent === 'codex' ? '◆' : '●') : (p.agent === 'codex' && p.status === 'idle' ? '◇' : GLYPH[p.status] || '·')
 const PIN = '★'  // marks a pinned session in the open-session header (in the list its tag is in CAPITALS: the font has no bold)
 // The list screen is two columns sharing the display: rows in the left third (clipped to listPx), a
@@ -139,7 +143,7 @@ const listScreen: GlassScreen<AppState, Ctx> = {
       // (to listPx, leaving the right side for the preview). ▶ marks the selected row by TEXT (columns
       // page mode flattens the line highlight style); the 3-space else keeps rows aligned.
       formatter: (it, i) =>
-        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${glyph(it)} ${it.pinned ? it.tag.toUpperCase() : it.tag}  ${it.label}` : '＋ new session'}`, listPx()),
+        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${glyph(it)} ${rowTag(it)}  ${it.label}` : '＋ new session'}`, listPx()),
     })
     // The header must stay ONE line (a wrapped header pushes the list past the 10-line screen): with
     // every count in double digits the full bar is ~600px, so drop the least urgent counts to fit.
@@ -179,7 +183,7 @@ export function listPreview(s: AppState, screen: string): string {
   if (screen !== 'list' || !getPreview() || !isConfigured() || s.loading || s.error || s.preview === NO_PREVIEW) return ' '
   const p = s.panes[listRow(s)]
   // the title carries the full name — the row beside it is clipped to a third of the screen
-  const title = truncateGlassText(p ? `${p.agent === 'codex' ? 'Codex · ' : ''}${p.tag}  ${p.label}` : 'New session', PREVIEW_PX)
+  const title = truncateGlassText(p ? `${p.tag}  ${p.label}` : 'New session', PREVIEW_PX)
   // 6 lines under the rule. The "needs you" notice takes one; if the preview then no longer fits,
   // drop what matters least. A raw reply ENDS with its question, so keep the first line (the
   // request) and the end. An AI summary (~) STARTS with what the session is waiting for, so keep

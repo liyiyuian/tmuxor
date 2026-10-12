@@ -16,6 +16,37 @@ function decodeBlob(text: string): { base: string; token: string } | null {
 
 const STATUS: Record<string, string> = { waiting: 'needs you', working: 'working', idle: 'idle' }
 
+const C = { bg: '#0b0f0c', card: '#0f1712', line: '#173a26', edge: '#1f6e45', accent: '#16c46a', text: '#d6ffe6', soft: '#b9d8c6', mute: '#7f9a8b' }
+const card: CSSProperties = { border: `1px solid ${C.edge}`, borderRadius: 12, background: C.card, overflow: 'hidden' }
+const rowBtn: CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 14px', border: 'none', borderBottom: `1px solid ${C.line}`, background: 'transparent', color: C.text, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }
+const pill = (on: boolean): CSSProperties => ({ flex: 'none', minWidth: 44, padding: '5px 10px', borderRadius: 999, fontSize: 13, fontWeight: 700, textAlign: 'center', background: on ? C.accent : 'transparent', color: on ? '#04130a' : C.mute, border: `1px solid ${on ? C.accent : '#2c4a3a'}` })
+const chip = (on: boolean): CSSProperties => ({ padding: '7px 12px', borderRadius: 999, fontSize: 14, fontFamily: 'inherit', cursor: 'pointer', background: on ? '#123524' : 'transparent', color: on ? C.text : '#5f7a6b', border: `1px solid ${on ? C.accent : '#243a2e'}`, textDecoration: on ? 'none' : 'line-through' })
+
+// A setting is one button: tap the row to switch it; the pill on the right says where it stands.
+function Toggle({ label, hint, on, onChange }: { label: string; hint: string; on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} aria-label={label} style={rowBtn} onClick={() => onChange(!on)}>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{label}</span>
+        <span style={{ display: 'block', fontSize: 12, color: C.mute, marginTop: 2, lineHeight: 1.35 }}>{hint}</span>
+      </span>
+      <span style={pill(on)}>{on ? 'On' : 'Off'}</span>
+    </button>
+  )
+}
+function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <section style={{ marginTop: 22 }}>
+      <h3 style={{ margin: 0, fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: '#7fd9a6' }}>{title}</h3>
+      {hint && <p style={{ margin: '4px 0 0', fontSize: 12, color: C.mute }}>{hint}</p>}
+      <div style={{ marginTop: 10 }}>{children}</div>
+    </section>
+  )
+}
+const SESSIONS_SHOWN = 6  // pinned sessions sort first, so they are always among these
+// screen-sleep choices; a value set by an older build that is not one of these is shown as its own choice
+const SLEEP: [number, string][] = [[0, 'Never'], [30, '30 s'], [60, '1 min'], [300, '5 min']]
+
 // Phone-side screen: your sessions (pin them here), a gesture cheat-sheet, and the settings form.
 // Each user points the app at THEIR OWN backend with THEIR OWN token — nothing is shipped in the
 // app. Fastest path: paste the config code install.sh prints (copy it from your terminal, or scan
@@ -34,6 +65,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [preview, setPv] = useState(getPreview())
   const [hiddenTags, setHidden] = useState(getHiddenTags())
   const [condense, setCond] = useState(getCondense())
+  const [allSessions, setAllSessions] = useState(false)  // the session list shows its first few until asked for the rest
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [lastErr, setLastErr] = useState(() => { try { return localStorage.getItem('conductor.lastError') || '' } catch { return '' } })
@@ -44,9 +76,9 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const live = useSyncExternalStore(subscribe, getSnapshot)
   const configured = !!getConfig().base
   const status = !configured
-    ? '○ Not set up yet — paste the config code below'
+    ? '○ Not set up yet — paste your setup code below'
     : live.error ? '○ Can’t reach your backend — check the URL & token'
-    : `● Connected — driving ${live.panes.length} session${live.panes.length === 1 ? '' : 's'}`
+    : `● Connected · ${live.panes.length} session${live.panes.length === 1 ? '' : 's'}`
   const statusColor = configured && !live.error ? '#16c46a' : '#ffb38a'
 
   // Test the connection before declaring success, so a wrong URL/token/down backend fails
@@ -70,7 +102,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
     } finally { setBusy(false) }
   }
 
-  const applyBlob = () => { const cfg = decodeBlob(blob); cfg ? connect(cfg.base, cfg.token) : setErr('That config code is not valid — copy the whole line from install.sh.') }
+  const applyBlob = () => { const cfg = decodeBlob(blob); cfg ? connect(cfg.base, cfg.token) : setErr('That setup code is not valid — copy the whole line from install.sh.') }
   const save = () => {
     const b = base.trim()
     if (!/^https:\/\/.+/i.test(b)) { setErr('Backend URL must start with https://'); return }
@@ -78,46 +110,37 @@ export function Setup({ onSave }: { onSave: () => void }) {
     connect(b, token.trim())
   }
 
-  const wrap: CSSProperties = { background: '#0b0f0c', color: '#d6ffe6', minHeight: '100vh', padding: 20, fontFamily: 'system-ui, sans-serif', boxSizing: 'border-box' }
-  const label: CSSProperties = { display: 'block', fontSize: 13, color: '#7fd9a6', margin: '16px 0 6px' }
-  const input: CSSProperties = { width: '100%', padding: '12px 14px', fontSize: 16, borderRadius: 10, border: '1px solid #1f6e45', background: '#0f1712', color: '#e8fff1', boxSizing: 'border-box' }
-  const btn: CSSProperties = { marginTop: 14, width: '100%', padding: '14px', fontSize: 16, fontWeight: 600, borderRadius: 10, border: 'none', background: '#16c46a', color: '#04130a', opacity: busy ? 0.6 : 1 }
-  const divider: CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, margin: '22px 0 0', color: '#5f7a6b', fontSize: 12 }
-  const rule: CSSProperties = { flex: 1, height: 1, background: '#1f6e45' }
-  const summary: CSSProperties = { fontSize: 15, fontWeight: 600, color: '#d6ffe6', padding: '12px 0', cursor: 'pointer' }
-  const row: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '4px 4px 4px 12px', borderBottom: '1px solid #173a26', fontSize: 14 }
-  const rowText: CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-  const pinBtn: CSSProperties = { padding: '6px 12px', fontSize: 20, lineHeight: 1, border: 'none', background: 'transparent' }
+  const wrap: CSSProperties = { background: C.bg, color: C.text, minHeight: '100vh', padding: 20, fontFamily: 'system-ui, sans-serif', boxSizing: 'border-box' }
+  const label: CSSProperties = { display: 'block', fontSize: 13, color: '#7fd9a6', margin: '14px 0 6px' }
+  const input: CSSProperties = { width: '100%', padding: '12px 14px', fontSize: 16, borderRadius: 10, border: `1px solid ${C.edge}`, background: C.card, color: '#e8fff1', boxSizing: 'border-box' }
+  const btn: CSSProperties = { marginTop: 12, width: '100%', padding: '14px', fontSize: 16, fontWeight: 600, borderRadius: 10, border: 'none', background: C.accent, color: '#04130a', opacity: busy ? 0.6 : 1 }
+  const fold: CSSProperties = { fontSize: 15, fontWeight: 600, color: C.text, padding: '12px 0', cursor: 'pointer' }
+  const sleepNow = Number(idleSec) || 0
+  const sleepOpts: [number, string][] = SLEEP.some(([v]) => v === sleepNow) ? SLEEP : [...SLEEP, [sleepNow, `${sleepNow} s`]]
 
   const CONNECTION = (
-    <>
-      {/* set once: open until the first successful connection, folded afterwards */}
-      <details open={showCfg} onToggle={(e) => setShowCfg(e.currentTarget.open)} style={{ marginTop: 14 }}>
-        <summary style={summary}>Connection</summary>
-        <p style={{ color: '#88a895', fontSize: 13, lineHeight: 1.4, margin: 0 }}>
-          Run <code>install.sh</code> on your computer, then paste the config code it prints. Everything stays on this phone.
-        </p>
-        <label style={label} htmlFor="cfg-blob">Paste config — the code from install.sh</label>
-        <textarea id="cfg-blob" style={{ ...input, minHeight: 64, resize: 'vertical', fontFamily: 'monospace', fontSize: 13 }}
-          value={blob} onChange={(e) => { setBlob(e.target.value); setErr('') }} placeholder="tmuxor:…" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-        <button style={{ ...btn, marginTop: 10 }} onClick={applyBlob} disabled={busy}>{busy ? 'Connecting…' : 'Paste config & connect'}</button>
+    // set once: open until the first successful connection, folded afterwards
+    <details open={showCfg} onToggle={(e) => setShowCfg(e.currentTarget.open)} style={{ marginTop: 18 }}>
+      <summary style={fold}>Connection</summary>
+      <label style={{ ...label, marginTop: 0 }} htmlFor="cfg-blob">Setup code — run <code>install.sh</code> on your computer and paste what it prints</label>
+      <textarea id="cfg-blob" style={{ ...input, minHeight: 64, resize: 'vertical', fontFamily: 'monospace', fontSize: 13 }}
+        value={blob} onChange={(e) => { setBlob(e.target.value); setErr('') }} placeholder="tmuxor:…" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+      <button style={btn} onClick={applyBlob} disabled={busy}>{busy ? 'Connecting…' : 'Connect'}</button>
 
-        <div style={divider}><div style={rule} /> or enter manually <div style={rule} /></div>
-        <label style={label} htmlFor="cfg-url">Backend URL (your Tailscale HTTPS address)</label>
-        <input id="cfg-url" type="url" inputMode="url" style={input} value={base} onChange={(e) => { setBase(e.target.value); setErr('') }} placeholder="your Tailscale HTTPS URL" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-        <label style={label} htmlFor="cfg-token">Access token (your CONDUCTOR_TOKEN)</label>
-        <input id="cfg-token" type="password" style={input} value={token} onChange={(e) => { setToken(e.target.value); setErr('') }} placeholder="paste your token" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-
-        <label style={label} htmlFor="cfg-projects">Projects folder (optional) — where new sessions are created</label>
-        <input id="cfg-projects" style={input} value={projects} onChange={(e) => { setProjects(e.target.value); setErr('') }} placeholder="~/projects (default)" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-
-        <label style={label} htmlFor="cfg-keypath">OpenAI key file (optional) — for voice. Auto-found in env/~/.env; set a path only if elsewhere</label>
-        <input id="cfg-keypath" style={input} value={keyPath} onChange={(e) => { setKeyPath(e.target.value); setErr('') }} placeholder="e.g. ~/.config/openai/key" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-
-        {err && <p style={{ color: '#ff8a8a', fontSize: 13 }}>{err}</p>}
+      <details style={{ marginTop: 14 }}>
+        <summary style={{ ...fold, fontSize: 13, fontWeight: 500, color: C.soft, padding: '6px 0' }}>Enter it by hand</summary>
+        <label style={label} htmlFor="cfg-url">Backend URL</label>
+        <input id="cfg-url" type="url" inputMode="url" style={input} value={base} onChange={(e) => { setBase(e.target.value); setErr('') }} placeholder="https://… (your Tailscale address)" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+        <label style={label} htmlFor="cfg-token">Token</label>
+        <input id="cfg-token" type="password" style={input} value={token} onChange={(e) => { setToken(e.target.value); setErr('') }} placeholder="your CONDUCTOR_TOKEN" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+        <label style={label} htmlFor="cfg-projects">Projects folder (optional)</label>
+        <input id="cfg-projects" style={input} value={projects} onChange={(e) => { setProjects(e.target.value); setErr('') }} placeholder="~/projects — where new sessions go" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+        <label style={label} htmlFor="cfg-keypath">OpenAI key file (optional)</label>
+        <input id="cfg-keypath" style={input} value={keyPath} onChange={(e) => { setKeyPath(e.target.value); setErr('') }} placeholder="only if voice can't find your key" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
         <button style={btn} onClick={save} disabled={busy}>{busy ? 'Connecting…' : 'Save & connect'}</button>
       </details>
-    </>
+      {err && <p style={{ color: '#ff8a8a', fontSize: 13 }}>{err}</p>}
+    </details>
   )
 
   return (
@@ -134,95 +157,90 @@ export function Setup({ onSave }: { onSave: () => void }) {
         </div>
       )}
 
-
       {!configured && CONNECTION}
-      {/* everyday settings, most used first; each applies at once */}
-      <div>
-        {configured && !live.error && live.panes.length > 0 && (
-          <>
-          <label style={label}>Sessions — tap ★ to keep one at the top of your glasses</label>
-          <div style={{ maxHeight: 290, overflowY: 'auto', border: '1px solid #1f6e45', borderRadius: 10, background: '#0f1712' }}>
-            {live.panes.map((p) => (
-              <div key={p.n} style={row}>
-                <span style={{ ...rowText, fontWeight: p.pinned ? 700 : undefined }}><b>{p.tag}</b> {p.label} <span style={{ color: '#6f8a7b' }}>· {p.done ? 'done' : STATUS[p.status] || p.status}</span></span>
-                <button type="button" aria-label={p.pinned ? 'Unpin' : 'Pin'} style={{ ...pinBtn, color: p.pinned ? '#16c46a' : '#5f7a6b' }} onClick={() => togglePin(p.n)}>{p.pinned ? '★' : '☆'}</button>
-              </div>
+
+      {/* everyday settings, most used first. Every control is a button and applies at once. */}
+      {configured && !live.error && live.panes.length > 0 && (
+        <Section title="Sessions" hint="Tap a session to pin it to the top of your glasses.">
+          {/* never a scrolling box inside the scrolling page: on a phone a swipe that starts on it moves
+              the box, not the page, and the settings below become unreachable. Show a few, expand in place. */}
+          <div data-testid="sessions" style={card}>
+            {(allSessions ? live.panes : live.panes.slice(0, SESSIONS_SHOWN)).map((p) => (
+              <button key={p.n} type="button" data-testid="session-row" aria-pressed={!!p.pinned} aria-label={`${p.pinned ? 'Unpin' : 'Pin'} ${p.tag} ${p.label}`}
+                style={{ ...rowBtn, padding: '10px 14px', background: p.pinned ? '#123524' : 'transparent', fontWeight: p.pinned ? 700 : 400 }} onClick={() => togglePin(p.n)}>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>
+                  <b>{p.tag}</b> {p.label} <span style={{ color: C.mute, fontWeight: 400 }}>· {p.done ? 'done' : STATUS[p.status] || p.status}</span>
+                </span>
+                <span style={{ flex: 'none', fontSize: 20, lineHeight: 1, color: p.pinned ? C.accent : '#4a6557' }}>{p.pinned ? '★' : '☆'}</span>
+              </button>
             ))}
+            {live.panes.length > SESSIONS_SHOWN && (
+              <button type="button" data-testid="sessions-more" style={{ ...rowBtn, justifyContent: 'center', borderBottom: 'none', color: '#7fd9a6', fontSize: 14 }} onClick={() => setAllSessions(!allSessions)}>
+                {allSessions ? 'Show fewer' : `Show all ${live.panes.length}`}
+              </button>
+            )}
           </div>
-          </>
-        )}
+        </Section>
+      )}
 
+      {live.tags.length > 1 && (
+        <Section title="Workspaces" hint="Tap one to hide it from the glasses, tap again to bring it back.">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {live.tags.map((t) => {
+              const shown = !hiddenTags.includes(t.tag)
+              return (
+                <button key={t.tag} type="button" data-testid="ws-chip" aria-pressed={shown} aria-label={`${t.tag}, ${t.n} session${t.n === 1 ? '' : 's'}, ${shown ? 'shown' : 'hidden'}`} style={chip(shown)}
+                  onClick={() => { const next = shown ? [...hiddenTags, t.tag] : hiddenTags.filter((x) => x !== t.tag); setHidden(next); setHiddenTags(next); workspaceFilterChanged() }}>
+                  {t.tag} <span style={{ color: C.mute, fontSize: 12 }}>{t.n}</span>
+                </button>
+              )
+            })}
+          </div>
+        </Section>
+      )}
 
-        {live.tags.length > 1 && (
-          <>
-            <label style={label}>Workspaces shown on the glasses (untick to leave one out)</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
-              {live.tags.map((t) => (
-                <label key={t.tag} style={{ color: '#b9d8c6', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {/* applies at once, like the switches below */}
-                  <input type="checkbox" checked={!hiddenTags.includes(t.tag)} onChange={(e) => {
-                    const next = e.target.checked ? hiddenTags.filter((x) => x !== t.tag) : [...hiddenTags, t.tag]
-                    setHidden(next); setHiddenTags(next); workspaceFilterChanged()
-                  }} />
-                  {t.tag} <span style={{ color: '#6f8a7b' }}>({t.n})</span>
-                </label>
+      <Section title="On the glasses">
+        <div style={card}>
+          <Toggle label="Preview" hint="Show the highlighted session's latest reply beside the list." on={preview}
+            onChange={(v) => { setPv(v); setPreview(v); previewSettingChanged() }} />
+          {live.canSummarize && preview && (
+            <Toggle label="AI summary" hint="One line by Claude Haiku instead of the raw reply. Sends that request and reply to Anthropic with your own key." on={aiSummary}
+              onChange={(v) => { setAi(v); setAiSummary(v) }} />
+          )}
+          {live.canCondense && (
+            <Toggle label="Condensed replies" hint="Open a session to its latest reply cut to one screen. Sends that request and reply to Anthropic with your own key." on={condense}
+              onChange={(v) => { setCond(v); setCondense(v); condenseSettingChanged() }} />
+          )}
+          <Toggle label="Wake on finish" hint="Light up when a session finishes or needs you." on={wakeChange}
+            onChange={(v) => { setWakeChange(v); setWakeOnChange(v) }} />
+          <div style={{ ...rowBtn, cursor: 'default', borderBottom: 'none', flexWrap: 'wrap' }}>
+            <span style={{ flex: 1, minWidth: 120 }}>
+              <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>Screen sleep</span>
+              <span style={{ display: 'block', fontSize: 12, color: C.mute, marginTop: 2 }}>Blank the glasses after this long without a gesture.</span>
+            </span>
+            <span role="group" aria-label="Screen sleep" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {sleepOpts.map(([v, name]) => (
+                <button key={v} type="button" data-testid="sleep-opt" aria-pressed={sleepNow === v} style={{ ...pill(sleepNow === v), cursor: 'pointer', fontFamily: 'inherit' }}
+                  onClick={() => { setIdleSec(String(v)); setIdleSleepSec(v) }}>{name}</button>
               ))}
-            </div>
-          </>
-        )}
+            </span>
+          </div>
+        </div>
+      </Section>
 
-        <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* applies at once, like the summary switch below */}
-          <input type="checkbox" checked={preview} onChange={(e) => { setPv(e.target.checked); setPreview(e.target.checked); previewSettingChanged() }} />
-          Show a preview of the highlighted session beside the list
-        </label>
-
-        {live.canSummarize && preview && (
-          <>
-            <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
-              {/* applies at once (like the backend picker): the form is folded away once connected, so a box that waited for Save would be easy to tick and never apply */}
-              <input type="checkbox" checked={aiSummary} onChange={(e) => { setAi(e.target.checked); setAiSummary(e.target.checked) }} />
-              Summarize list previews with Claude Haiku (uses your Anthropic API key)
-            </label>
-            <p style={{ color: '#6f8a7b', fontSize: 12, margin: '2px 0 0', lineHeight: 1.4 }}>
-              Off by default. When on, your backend sends the highlighted session’s latest request and reply to Anthropic and
-              the preview shows a one-line summary (marked ＊) instead of the raw text. Each summary is a small request billed to your key.
-            </p>
-          </>
-        )}
-
-        {live.canCondense && (
-          <>
-            <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input type="checkbox" checked={condense} onChange={(e) => { setCond(e.target.checked); setCondense(e.target.checked); condenseSettingChanged() }} />
-              Condense the latest reply with Claude Haiku (uses your Anthropic API key)
-            </label>
-            <p style={{ color: '#6f8a7b', fontSize: 12, margin: '2px 0 0', lineHeight: 1.4 }}>
-              Off by default. When on, opening a session shows its latest reply as about one screen (marked ＊) instead of the
-              full text; earlier replies and anything it asks you to approve stay as they are. Your backend sends that request and
-              reply to Anthropic, once per reply. Switch it off here to read the full reply.
-            </p>
-          </>
-        )}
-
-        <label style={label} htmlFor="cfg-idle">Glasses screen on-time (seconds before it sleeps; 0 = always on)</label>
-        <input id="cfg-idle" type="number" inputMode="numeric" min="0" style={input} value={idleSec} onChange={(e) => { setIdleSec(e.target.value); setIdleSleepSec(Number(e.target.value) || 0) }} placeholder="0" />
-        <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input type="checkbox" checked={wakeChange} onChange={(e) => { setWakeChange(e.target.checked); setWakeOnChange(e.target.checked) }} />
-          Wake the glasses when a session finishes or needs input
-        </label>
-
-      </div>
       {configured && CONNECTION}
-      <details style={{ marginTop: 14 }}>
-        <summary style={summary}>How to use the glasses</summary>
-        <ul style={{ margin: 0, paddingLeft: 18, color: '#b9d8c6', fontSize: 13, lineHeight: 1.6 }}>
-          <li><b>Session list</b> — swipe to move, tap to open, double-tap to exit. Sessions are in the same order as on your computer (herdr workspaces, then tabs); pinned sessions stay on top, their tag in CAPITALS. ○ idle, » working, ● finished since you last opened it, ! needs you (Codex sessions use ◇ and ◆). The right side previews the highlighted session. “＋ new session” is the last row (swipe up from the top).</li>
+
+      <details>
+        <summary style={fold}>How to use the glasses</summary>
+        <ul style={{ margin: 0, paddingLeft: 18, color: C.soft, fontSize: 13, lineHeight: 1.6 }}>
+          <li><b>List</b> — swipe to move, tap to open, double-tap to exit.</li>
           <li><b>In a session</b> — swipe to scroll, tap to reply (speak, or type here), double-tap to go back.</li>
           <li><b>When it asks you something</b> — read it, tap, swipe to your answer, tap to choose.</li>
-          <li><b>Pin / unpin</b> — tap ★ next to a session above. Or on the glasses: highlight it in the session list, tap then press-and-hold to open the menu, and choose “Pin / unpin session”.</li>
+          <li><b>Marks</b> — ○ idle · » working · ● finished · ! needs you (Codex: ◇ ◆). CAPITALS = pinned. ＊ = written by AI.</li>
+          <li><b>Pin from the glasses</b> — highlight a session, tap then press and hold, choose “Pin / unpin session”.</li>
         </ul>
       </details>
+
       {/* which build this is — the version number is held between submissions, so it can't say */}
       <p style={{ color: '#6f8a7b', fontSize: 11, margin: '18px 0 0', textAlign: 'center' }}>G2C {__APP_VERSION__} · build {__BUILD__}</p>
     </div>
