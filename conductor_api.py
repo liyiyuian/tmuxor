@@ -156,15 +156,35 @@ def record_usage(provider, model, kind, tokens_in=0, tokens_out=0, seconds=0.0, 
         pass  # never let bookkeeping break the call it is counting
 
 
+def _usage_start():
+    """When "all time" begins: local midnight of the day this backend first ran with cost totals.
+    Written once, next to the ledger, so the total starts at the update — not at whatever older
+    rows the ledger happens to hold."""
+    p = USAGE_LOG + ".start"
+    try:
+        return float(open(p).read().strip())
+    except (OSError, ValueError):
+        pass
+    lt = time.localtime()
+    t0 = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+    try:
+        with open(os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+            f.write(str(t0))
+    except OSError:
+        pass
+    return t0
+
+
 def usage_report(now=None):
     """{today, week, all, since, start}: per (provider, model) calls / tokens / cost for the local
-    day so far, the last 7 days, and everything in the ledger; `start` = when the ledger starts
-    (the first call recorded after this was installed), `since` = the same but only when that is
-    less than 7 days ago (what older apps read)."""
+    day so far, the last 7 days, and all time; `start` = when "all time" begins (the day this
+    backend was updated to keep totals, see _usage_start); `since` = when the ledger's first row
+    is, if that is less than 7 days ago (what older apps read)."""
     now = now if now is not None else time.time()
     lt = time.localtime(now)
     day0 = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
     week0 = now - 7 * 86400
+    all0 = _usage_start()
     acc, first = {"today": {}, "week": {}, "all": {}}, None
     try:
         with open(USAGE_LOG, errors="replace") as f:
@@ -180,7 +200,7 @@ def usage_report(now=None):
         if ts > now:
             continue
         first = ts if first is None else min(first, ts)
-        for name, t0 in (("today", day0), ("week", week0), ("all", 0)):
+        for name, t0 in (("today", day0), ("week", week0), ("all", all0)):
             if ts < t0:
                 continue
             a = acc[name].setdefault((r.get("provider"), r.get("model")), {
@@ -196,7 +216,7 @@ def usage_report(now=None):
                 a["usd"] = round(a["usd"] + r["usd"], 6)
     rows = lambda d: sorted(d.values(), key=lambda a: (-a["usd"], a["provider"] or "", a["model"] or ""))
     return {"today": rows(acc["today"]), "week": rows(acc["week"]), "all": rows(acc["all"]),
-            "since": first if first is not None and first > week0 else None, "start": first}
+            "since": first if first is not None and first > week0 else None, "start": all0}
 
 
 # --- plan usage: how much of a Claude / Codex subscription's limits is used ---
@@ -660,7 +680,7 @@ def wav_seconds(audio):
     """Duration of a PCM16 mono WAV (our recorder's format): data bytes / (rate*2)."""
     try:
         rate = int.from_bytes(audio[24:28], "little")
-        data = int.from_bytes(audio[40:44], "little")
+        data = min(int.from_bytes(audio[40:44], "little"), max(0, len(audio) - 44))  # never more than is there (a streamed WAV's header can claim 4 GB)
         if rate and data:
             return data / (rate * 2)
     except Exception:

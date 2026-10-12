@@ -115,6 +115,7 @@ let lastNav: GlassNavState = { screen: 'list', highlightedIndex: 0 }
 // Condensed / full reply: the open session's latest reply (when Condensed replies is on).
 function onMenu(id?: number) {
   if (id == null || !menuObject.menuItems.some((m) => m.itemID === id)) return
+  trace(`APP menu pick ${id} on ${lastNav.screen}${getSnapshot().activePaneN ? ' (session open)' : ''}`)
   const s = getSnapshot()
   noteActivity()
   if (MENU_SETTINGS[id]) menuSetting(MENU_SETTINGS[id])
