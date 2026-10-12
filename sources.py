@@ -17,6 +17,7 @@ Design rule: the tmux path must behave EXACTLY as before. TmuxSource is a thin
 delegator to the unchanged tmux_conductor functions, and an unconfigured backend
 (no ?source=, no CONDUCTOR_SOURCE) always resolves to tmux.
 """
+import glob
 import json
 import os
 import re
@@ -160,6 +161,24 @@ _HERDR_STATUS = {"working": "working", "idle": "idle", "blocked": "waiting",
 _sname_cache = {"t": 0.0, "sid": {}, "pid": {}}
 _SNAME_TTL = 20.0
 _hlabel_cache = {}   # herdr pane_id -> (name, ts): caches the process-info resolution
+_codex_files = {}    # Codex session id -> its rollout transcript path (a session's file never moves)
+CODEX_SESSIONS = os.path.expanduser(os.environ.get("CONDUCTOR_CODEX_SESSIONS", "~/.codex/sessions"))
+
+
+def _codex_rollout(sid):
+    """Path of the Codex transcript for session `sid` (rollout-<time>-<sid>.jsonl), or None."""
+    if not sid or not re.fullmatch(r"[0-9a-fA-F-]{8,64}", sid):
+        return None
+    hit = _codex_files.get(sid)
+    if hit and os.path.exists(hit):
+        return hit
+    found = glob.glob(os.path.join(CODEX_SESSIONS, "**", f"rollout-*{sid}.jsonl"), recursive=True)
+    if not found:
+        return None
+    if len(_codex_files) > 256:
+        _codex_files.pop(next(iter(_codex_files)))
+    _codex_files[sid] = found[0]
+    return found[0]
 _HLABEL_TTL = 120.0
 
 
@@ -275,7 +294,11 @@ class HerdrSource:
         for rp in raw:
             ws = rp.get("workspace_id", "")
             wmeta = wsmap.get(ws, {})
-            is_claude = rp.get("agent") == "claude"
+            agent = rp.get("agent") or ""
+            # `is_claude` is the historical name for "an agent session whose conversation we can
+            # read" — the phone opens those in the conversation view. Codex sessions qualify too
+            # (their transcript has its own reader); `agent` says which one it is.
+            is_claude = agent in ("claude", "codex")
             out.append({
                 "pane_id": rp["pane_id"],
                 "session": ws,
@@ -290,12 +313,15 @@ class HerdrSource:
                 "title": "",                                  # herdr pane list carries no task title
                 "is_conductor": False,                        # the API runs as a service, not inside a pane
                 "is_claude": is_claude,
+                "agent": agent,
                 "_agent_status": rp.get("agent_status", "unknown"),
                 "_sid": (rp.get("agent_session") or {}).get("value"),  # Claude sessionId -> real name
             })
-        # stable pane_index within each window (workspace) for a deterministic sort tiebreak
+        # pane_index = position inside the workspace in herdr's OWN order (`pane list` goes tab by
+        # tab, the way `tab list` orders them), so sorting by (window_index, pane_index) gives the
+        # layout the user sees: workspaces, then tabs, then panes.
         counter = defaultdict(int)
-        for p in sorted(out, key=lambda p: (p["window_index"], p["pane_id"])):
+        for p in out:
             p["pane_index"] = counter[p["window_index"]]
             counter[p["window_index"]] += 1
         if claude_only:
@@ -346,7 +372,7 @@ class HerdrSource:
     def session_label(self, p):
         # Prefer the real Claude session name (its /rename or auto title); fall back to the
         # project folder name when the pane has no resolvable session.
-        if p.get("is_claude"):
+        if p.get("is_claude") and p.get("agent") != "codex":
             nm = self._claude_name(p)
             if nm:
                 return nm
@@ -384,6 +410,11 @@ class HerdrSource:
         return p["pane_id"]  # e.g. 'w3:p6' — opaque token echoed back in URLs
 
     def resolve_session(self, p):
+        if p.get("agent") == "codex":
+            # herdr knows the Codex session id; its transcript is the rollout file named after it.
+            # Never fall back to "newest transcript in this folder" — that would be a Claude one.
+            return {"jsonl": _codex_rollout(p.get("_sid")),
+                    "status": "busy" if p.get("_agent_status") == "working" else "idle"}
         self._ensure_pid(p)
         return tc.resolve_session(p)
 

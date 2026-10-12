@@ -314,35 +314,28 @@ def _user_prompt(rec):
         c = "\n".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
     if not isinstance(c, str):
         return ""
-    c = re.sub(r"<system-reminder>.*?</system-reminder>", "", c, flags=re.S)
     # background-task completions are injected as user-role messages, not typed prompts —
-    # drop the whole block so its <task-id>/<status>/… tags don't get flattened into soup
+    # _clean_prompt drops the whole block so its <task-id>/<status>/… tags don't get flattened into soup
+    return _clean_prompt(c)
+
+
+_convo_cache = {}  # jsonl_path -> ((mtime_ns, size), turns, queued) — skip re-read+re-parse when unchanged
+
+
+def _clean_prompt(c):
+    """A typed prompt with the harness's own blocks removed ('' if nothing typed is left)."""
+    c = re.sub(r"<system-reminder>.*?</system-reminder>", "", c, flags=re.S)
     c = re.sub(r"<task-notification>.*?</task-notification>", "", c, flags=re.S)
     c = re.sub(r"<command-[a-z]+>.*?</command-[a-z]+>", "", c, flags=re.S)
     c = re.sub(r"<local-command-[a-z]+>.*?</local-command-[a-z]+>", "", c, flags=re.S)
-    c = re.sub(r"</?[a-z-]+>", "", c)  # stray tags
-    return c.strip()
+    return re.sub(r"</?[a-z-]+>", "", c).strip()
 
 
-_convo_cache = {}  # jsonl_path -> ((mtime_ns, size), turns) — skip re-read+re-parse when unchanged
-
-
-def read_conversation(jsonl_path):
-    """The real back-and-forth, oldest first: [{role:'user'|'assistant', text}].
-    User prompts (typed only) interleaved with assistant prose; the in-between
-    (thinking / tool calls / results / system noise) stripped; markdown flattened.
-    Memoized by (mtime_ns, size) so a steady 2.5s poll on an unchanged transcript
-    costs one stat() instead of a full read + json.loads + ~15 regex passes/turn."""
-    try:
-        st = Path(jsonl_path).stat()
-        key = (st.st_mtime_ns, st.st_size)
-    except OSError:
-        key = None
-    if key is not None:
-        hit = _convo_cache.get(jsonl_path)
-        if hit and hit[0] == key:
-            return hit[1]
-    turns = []
+def _read_claude(jsonl_path):
+    """(turns, queued) from a Claude Code transcript. `queued` = prompts typed while the agent was
+    busy and not yet taken up: Claude Code logs them as queue-operation records (enqueue, then a
+    dequeue/remove when delivered) and only writes the user record once the prompt is delivered."""
+    turns, queue = [], []
     for line in Path(jsonl_path).read_text(errors="replace").splitlines():
         try:
             rec = json.loads(line)
@@ -357,11 +350,90 @@ def read_conversation(jsonl_path):
             text = _user_prompt(rec)
             if text:
                 turns.append({"role": "user", "text": _strip_markdown(text)})
+        elif t == "queue-operation":
+            op, c = rec.get("operation"), rec.get("content")
+            if op == "enqueue":
+                queue.append(c if isinstance(c, str) else "")
+            elif op == "popAll":
+                queue.clear()
+            elif op in ("dequeue", "remove") and queue:
+                # one record takes one item out; a remove names it (not always verbatim)
+                queue.pop(queue.index(c) if op == "remove" and c in queue else 0)
+    return turns, [q for q in (_clean_prompt(x) for x in queue) if q]
+
+
+CODEX_TAIL_BYTES = 16 * 1024 * 1024  # a Codex transcript can be hundreds of MB; the glasses need the recent part
+
+
+def is_codex_transcript(jsonl_path):
+    return os.path.basename(str(jsonl_path)).startswith("rollout-")
+
+
+def _read_codex(jsonl_path):
+    """Turns from a Codex CLI transcript (rollout-*.jsonl): response_item/message records with
+    role user (typed prompts — the harness's own <tagged> context blocks are skipped) and role
+    assistant (its commentary and final answers). Reasoning, tool calls and their output are not
+    conversation. Reads only the END of the file (CODEX_TAIL_BYTES)."""
+    turns = []
+    with open(jsonl_path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(max(0, size - CODEX_TAIL_BYTES))
+        data = f.read()
+    lines = data.split(b"\n")
+    if size > CODEX_TAIL_BYTES:
+        lines = lines[1:]  # the window starts mid-record
+    for raw in lines:
+        if b'"message"' not in raw or b'"response_item"' not in raw:
+            continue  # most of the file is tool output / state snapshots: skip without parsing
+        try:
+            rec = json.loads(raw)
+        except Exception:
+            continue
+        pl = rec.get("payload")
+        if rec.get("type") != "response_item" or not isinstance(pl, dict) or pl.get("type") != "message":
+            continue
+        role = pl.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        text = "\n".join(c.get("text", "") for c in pl.get("content") or []
+                         if isinstance(c, dict) and c.get("type") in ("input_text", "output_text", "text")).strip()
+        if not text or (role == "user" and text.startswith("<")):
+            continue  # empty, or a harness block (<environment_context>, <user_instructions>, …)
+        turns.append({"role": role, "text": _strip_markdown(text)})
+    return turns
+
+
+def _parse_conversation(jsonl_path):
+    """(turns, queued), memoized by (mtime_ns, size) so a steady 2.5s poll on an unchanged
+    transcript costs one stat() instead of a full read + json.loads + ~15 regex passes/turn."""
+    try:
+        st = Path(jsonl_path).stat()
+        key = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        key = None
     if key is not None:
-        _convo_cache[jsonl_path] = (key, turns)
+        hit = _convo_cache.get(jsonl_path)
+        if hit and hit[0] == key:
+            return hit[1], hit[2]
+    turns, queued = (_read_codex(jsonl_path), []) if is_codex_transcript(jsonl_path) else _read_claude(jsonl_path)
+    if key is not None:
+        _convo_cache[jsonl_path] = (key, turns, queued)
         if len(_convo_cache) > 64:  # bound memory: transcripts rotate over the service's lifetime
             _convo_cache.pop(next(iter(_convo_cache)))
-    return turns
+    return turns, queued
+
+
+def read_conversation(jsonl_path):
+    """The real back-and-forth, oldest first: [{role:'user'|'assistant', text}].
+    User prompts (typed only) interleaved with assistant prose; the in-between
+    (thinking / tool calls / results / system noise) stripped; markdown flattened."""
+    return _parse_conversation(jsonl_path)[0]
+
+
+def queued_prompts(jsonl_path):
+    """Prompts waiting in the agent's queue (typed while it was busy), oldest first."""
+    return _parse_conversation(jsonl_path)[1]
 
 
 # --- exact pane -> live Claude session via sessions/<pid>.json --------------

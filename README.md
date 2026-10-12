@@ -83,7 +83,8 @@ replies — everything else happens on the glasses with **three gestures**, reas
   · **○** idle, with **finished** sessions (`»`) pinned on top until you open them. Each row is
   `tag  title` (the tag is the tmux window / Herdr workspace / project). Swipe to scroll
   (**▶** marks the selected row — it follows the session, so a re-sort never moves it onto a
-  different one), tap to open. The list opens on the session that most needs you; the last row,
+  different one), tap to open. Sessions are listed in your multiplexer's own order (Herdr workspaces, then tabs;
+  tmux windows, then panes) with pinned ones on top; ● ○ mark Claude sessions, ◆ ◇ Codex; the last row,
   **＋ new session**, is one swipe up from the top. The right two thirds of the screen **previews** the
   highlighted session — your last prompt and the end of its reply — so you can triage without
   opening each one. *Optional:* add your own Anthropic API key to the backend and switch on

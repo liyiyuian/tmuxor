@@ -39,6 +39,9 @@ export interface Ctx {
 }
 
 const GLYPH: Record<string, string> = { waiting: '!', working: '●', idle: '○', other: '·' }
+// the same statuses for a Codex session: a diamond where Claude has a circle
+const CODEX_GLYPH: Record<string, string> = { working: '◆', idle: '◇' }
+const glyph = (p: Pane) => (p.agent === 'codex' && CODEX_GLYPH[p.status]) || GLYPH[p.status] || '·'
 const PIN = '★'  // marks a pinned session (list row + open-session header)
 // The list screen is two columns sharing the display: rows in the left third (clipped to listPx), a
 // preview panel in the right two thirds (listPreview; AppGlasses columns). With the preview switched
@@ -46,7 +49,13 @@ const PIN = '★'  // marks a pinned session (list row + open-session header)
 const listPx = () => (getPreview() ? 172 : 548)
 // A solid rule under the panel's title. Box-drawing ─ joins into one line in the glasses font; no
 // glyph joins VERTICALLY (every one is shorter than the line pitch — a column of | reads as dashes).
-const RULE = (() => { let r = ''; while (getTextWidth(r + '─') <= PREVIEW_PX) r += '─'; return r })()
+// With a label it also says what is on its way for the panel ("── summarizing… ─────"): the row is
+// always there, so nothing below it moves when the label comes and goes.
+const rules: Record<string, string> = {}
+function rule(label: string): string {
+  if (!(label in rules)) { let r = label ? `── ${label}… ` : ''; while (getTextWidth(r + '─') <= PREVIEW_PX) r += '─'; rules[label] = r }
+  return rules[label]
+}
 const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1) + '…')
 const DETAIL_SLOTS = 9
 const VIEW_SLOTS = 9  // conversation/shell view: header (with scroll/position) + 9 content, no footer (must match store VIEW_SLOTS)
@@ -115,8 +124,8 @@ const listScreen: GlassScreen<AppState, Ctx> = {
     const idle = Math.max(0, s.panes.length - work - wait - done)
     // one consistent bar; drop zero fields instead of hiding idle when busy
     const segs = [wait && `${wait}! need you`, work && `${work}● working`, done && `${done}» done`, idle && `${idle}○ idle`].filter(Boolean)
-    // Sessions first (pinned ★ band on top, then by status); "＋ new session" is the LAST row. So the
-    // list opens on the session that most needs you, and new-session is one swipe up (the list wraps).
+    // Sessions first (pinned ★ band on top, then the multiplexer's own order — store.ts
+    // decorateAndSort); "＋ new session" is the LAST row, one swipe up from the top (the list wraps).
     const items: (Pane | null)[] = [...s.panes, null]
     const hi = listRow(s)
     const VIS = 8
@@ -130,7 +139,7 @@ const listScreen: GlassScreen<AppState, Ctx> = {
       // (to listPx, leaving the right side for the preview). ▶ marks the selected row by TEXT (columns
       // page mode flattens the line highlight style); the 3-space else keeps rows aligned.
       formatter: (it, i) =>
-        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${it.pinned ? PIN : ''}${it.done ? '»' : (GLYPH[it.status] ?? '·')} ${it.tag}  ${it.label}` : '＋ new session'}`, listPx()),
+        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${it.pinned ? PIN : ''}${it.done ? '»' : glyph(it)} ${it.tag}  ${it.label}` : '＋ new session'}`, listPx()),
     })
     // The header must stay ONE line (a wrapped header pushes the list past the 10-line screen): with
     // every count in double digits the full bar is ~600px, so drop the least urgent counts to fit.
@@ -170,7 +179,7 @@ export function listPreview(s: AppState, screen: string): string {
   if (screen !== 'list' || !getPreview() || !isConfigured() || s.loading || s.error || s.preview === NO_PREVIEW) return ' '
   const p = s.panes[listRow(s)]
   // the title carries the full name — the row beside it is clipped to a third of the screen
-  const title = truncateGlassText(p ? `${p.tag}  ${p.label}` : 'New session', PREVIEW_PX)
+  const title = truncateGlassText(p ? `${p.agent === 'codex' ? 'Codex · ' : ''}${p.tag}  ${p.label}` : 'New session', PREVIEW_PX)
   // 6 lines under the rule. The "needs you" notice takes one; if the preview then no longer fits,
   // drop what matters least. A raw reply ENDS with its question, so keep the first line (the
   // request) and the end. An AI summary (~) STARTS with what the session is waiting for, so keep
@@ -181,7 +190,7 @@ export function listPreview(s: AppState, screen: string): string {
     : [s.preview[0], ...s.preview.slice(1 - rows)]
   const body = !p ? ['Start a new Claude session', 'in a project folder.'] : [...(wait ? ['! needs you — tap to read'] : []), ...pv]
   // two blank lines keep it clear of the header, which runs the full width
-  return ['', '', title, RULE, ...body].join('\n')
+  return ['', '', title, rule(p ? s.previewBusy : ''), ...body].join('\n')
 }
 
 const detailScreen: GlassScreen<AppState, Ctx> = {

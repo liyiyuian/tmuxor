@@ -4,7 +4,7 @@
 import { listPanes, paneScreen, paneConversation, paneSummary, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
 import { GlassBridgeSource } from 'even-toolkit/stt'
 import { getTextWidth, truncateGlassText } from 'even-toolkit/pretext'
-import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins, getAiSummary, getPreview } from './config'
+import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins, getAiSummary, getPreview, getHiddenTags } from './config'
 
 export type Phase = 'view' | 'listening' | 'confirm'
 const SLOTS = 9
@@ -18,11 +18,13 @@ export interface MenuState { question: string; options: MenuOption[]; multi: boo
 
 export interface AppState {
   panes: Pane[]
+  tags: { tag: string; n: number }[]  // every workspace the backend reported, with its session count — including ones hidden from the list
   loading: boolean
   error: string | null
   listSel: string   // highlighted list row, by pane id (see listRow); '' = none yet -> the top row at launch
   listPos: number   // the row it was last on — where the highlight stays if that session disappears
   preview: string[] // the highlighted session's latest exchange, shown beside the list (pre-wrapped)
+  previewBusy: string // '' or what is on its way for that panel: 'loading' | 'updating' | 'summarizing' (shown in its rule)
   activePaneN: string | null
   activeLabel: string
   activeIsClaude: boolean
@@ -64,9 +66,9 @@ export interface AppState {
 }
 
 let state: AppState = {
-  panes: [], loading: true, error: null, listSel: '', listPos: 0, preview: [],
+  panes: [], tags: [], loading: true, error: null, listSel: '', listPos: 0, preview: [],
   activePaneN: null, activeLabel: '', activeIsClaude: false, activeCwd: '',
-  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], canSummarize: false, asleep: false,
+  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], canSummarize: false, previewBusy: '', asleep: false,
   phase: 'view', draft: '', draftKind: null, busy: false, status: '', typingText: '', draftLines: [], confirmScroll: 0, lastCost: 0, totalCost: 0,
   newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newCreate: false, newStatus: '', newPaneN: null,
 }
@@ -165,7 +167,7 @@ const SETTLE_MS = 600  // longer than the fastest swipe cadence (even-toolkit dr
 let previewMovedAt = 0
 let previewAbort: AbortController | null = null
 // the phone's "preview" switch changed: redraw the list (rows widen/narrow) and the panel now
-export function previewSettingChanged() { set({ preview: NO_PREVIEW }); showPreview(true) }
+export function previewSettingChanged() { set({ preview: NO_PREVIEW, previewBusy: '' }); showPreview(true) }
 function showPreview(moved = false) {
   if (!getPreview()) return  // turned off on the phone: no panel, no downloads, no summaries
   const now = Date.now()
@@ -176,57 +178,74 @@ function showPreview(moved = false) {
   if (moved && state.preview !== NO_PREVIEW) set({ preview: NO_PREVIEW })
   const n = state.listSel, gen = fleetGen
   previewTimer = setTimeout(async () => {
-    // from the cache first (instant), then check the backend for anything newer
     let c = previewCache.get(n)
-    if (state.listSel === n && state.preview !== (c?.lines ?? SETTLED)) set({ preview: c?.lines ?? SETTLED })
+    // Draw the panel for row n: its lines, plus — in the panel's rule — what is still on its way.
+    // Without that you read text that is about to be replaced (a cached preview, or the raw reply
+    // a summary is being written for). One write per change; none if nothing changed.
+    const show = (busy = '') => {
+      const lines = c?.lines ?? SETTLED
+      if (state.listSel === n && (state.preview !== lines || state.previewBusy !== busy)) set({ preview: lines, previewBusy: busy })
+    }
+    // Opt-in AI summary (the user's own Anthropic key, on their backend): replaces the reply tail
+    // with one status line, marked ~. Asked once per transcript state, never while the session
+    // is still working, and only of a backend that says it can (so an older one gets no request).
+    const wantSummary = () => !!c && !!c.etag && !c.working && c.sumFor !== c.etag && getAiSummary() && state.canSummarize && Date.now() - lastActivity <= SUMMARY_IDLE_MS
     // only while the list is on screen, and only for a session that is on it (a request for a pane
     // that is gone would return a 4xx)
-    if (!isConfigured() || state.activePaneN || state.asleep || !state.panes.some((p) => p.n === n)) return
+    const live = isConfigured() && !state.activePaneN && !state.asleep && state.panes.some((p) => p.n === n)
+    // from the cache first (instant), then check the backend for anything newer
+    show(!live ? '' : !c ? 'loading' : wantSummary() ? 'summarizing' : '')
+    if (!live) return
     const ac = (previewAbort = new AbortController())
+    // the check is normally quick (an etag); say so only when it is not
+    const slow = setTimeout(() => { if (!ac.signal.aborted && state.listSel === n && !state.previewBusy) set({ previewBusy: 'updating' }) }, 400)
     try {
       const r = await paneConversation(n, c?.etag, { tail: true, signal: ac.signal })
+      clearTimeout(slow)
       if (gen !== fleetGen) return
       if (!r.notModified) {
         const { head, raw } = previewOf(r.turns, r.working)
         c = { etag: r.etag, head, raw, working: r.working, lines: [...head, ...raw] }
         previewCache.set(n, c)
-        if (state.listSel === n) set({ preview: c.lines })
       }
-      // Opt-in AI summary (the user's own Anthropic key, on their backend): replaces the reply tail
-      // with one status line, marked ~. Asked once per transcript state, never while the session
-      // is still working, and only of a backend that says it can (so an older one gets no request).
-      if (!c || !c.etag || c.working || c.sumFor === c.etag || !getAiSummary() || !state.canSummarize || Date.now() - lastActivity > SUMMARY_IDLE_MS) return
+      if (!c || !wantSummary()) return show()
+      show('summarizing')
       const s = await paneSummary(n)
-      if (gen !== fleetGen || s.etag !== c.etag) return
+      if (gen !== fleetGen || s.etag !== c.etag) return show()  // the transcript moved on: the next poll starts over
       if (s.pending) {  // being written (a couple of seconds) -> look again soon, if still on this row
         previewTimer = setTimeout(() => { if (state.listSel === n) showPreview() }, 2500)
         return
       }
       c.sumFor = c.etag  // settled for this transcript, with or without a summary
-      if (s.summary) {
-        c.lines = [...c.head, ...wrapPx('~ ' + s.summary, '', PREVIEW_PX).slice(0, PREVIEW_ROWS - c.head.length)]
-        if (state.listSel === n) set({ preview: c.lines })
-      }
-    } catch { /* offline, superseded, or the request failed: what is shown stays */ }
+      if (s.summary) c.lines = [...c.head, ...wrapPx('~ ' + s.summary, '', PREVIEW_PX).slice(0, PREVIEW_ROWS - c.head.length)]
+      show()
+    } catch {
+      // offline, or the request failed: what is shown stays, without a promise of more. (Superseded
+      // by a newer row: that row's own draw decides, so leave it alone.)
+      clearTimeout(slow)
+      if (!ac.signal.aborted) show()
+    }
   }, moved ? SETTLE_MS : 0)
 }
 
-const ORDER: Record<string, number> = { waiting: 0, working: 1, done: 2, idle: 3, other: 4 }
 // Panes that went working -> idle and haven't been opened yet: they stay pinned in a top "done"
 // band (labeled », above plain idle) until the user opens them (openPane clears the mark). Dropped
 // automatically once a pane is no longer idle (worked again / now needs input) or has vanished.
 const finished = new Set<string>()
-// Pinned sessions form a band at the very top (still ordered by status inside it), then the rest.
+// Pinned sessions form a band at the very top (in the multiplexer's order inside it), then the rest.
 // A pin counts only while the id is still in the folder it was pinned in: tmux reuses pane ids after
 // a server restart, so a stored pin could otherwise land on an unrelated session. A mismatch only
 // hides the ★ (nothing is deleted), so a transient cwd change heals itself on the next poll.
 function decorateAndSort(raw: Pane[]): Pane[] {
   const pinCwd = new Map(getPins().map((p) => [p.n, p.cwd]))
+  const hidden = new Set(getHiddenTags())  // workspaces the user unticked on the phone
   return raw
+    .filter((p) => !hidden.has(p.tag))
     .map((p) => ({ ...p, done: finished.has(p.n), pinned: pinCwd.get(p.n) === p.cwd }))
-    .sort((a, b) => (a.pinned ? 0 : 1) - (b.pinned ? 0 : 1)
-                    || (ORDER[a.done ? 'done' : a.status] ?? 9) - (ORDER[b.done ? 'done' : b.status] ?? 9)
-                    || a.window - b.window || a.pane_index - b.pane_index)
+    // pinned first; then the order of the multiplexer itself — herdr workspaces, then tabs, then
+    // panes (tmux: windows, then panes) — so the list matches the layout on the computer and a
+    // session keeps its place whatever its status. (Status is the row's glyph + the header counts.)
+    .sort((a, b) => (a.pinned ? 0 : 1) - (b.pinned ? 0 : 1) || a.window - b.window || a.pane_index - b.pane_index)
 }
 const MAX_PINS = 30  // pins of sessions that are gone are kept (they may be on the other backend), so cap growth
 // Flips what the user SEES (p.pinned), replacing any stale entry stored under the same id.
@@ -239,10 +258,19 @@ export function togglePin(n: string) {
 }
 // Re-decorate + re-sort the CURRENT panes against `finished` and push if changed — reflects an
 // openPane clear immediately (the list poll only runs while no pane is open, so it can lag 5s).
+let lastRaw: Pane[] = []  // the last poll, unfiltered — pins, "done" marks and the workspace filter re-apply to it
 function repaintPanes() {
-  const panes = decorateAndSort(state.panes)
+  const panes = decorateAndSort(lastRaw)
   const sig = JSON.stringify(panes)
   if (sig !== lastPanesSig) { lastPanesSig = sig; set(withSel(panes)) }
+}
+// the phone's workspace ticks changed: re-filter the list now (and move the preview with the highlight)
+export function workspaceFilterChanged() { repaintPanes(); showPreview(true) }
+// workspaces in list order with their session counts, for the phone's show/hide ticks
+function tagCounts(raw: Pane[]): { tag: string; n: number }[] {
+  const m = new Map<string, number>()
+  for (const p of [...raw].sort((a, b) => a.window - b.window || a.pane_index - b.pane_index)) m.set(p.tag, (m.get(p.tag) ?? 0) + 1)
+  return [...m].map(([tag, n]) => ({ tag, n }))
 }
 let fleetGen = 0 // bumped on a backend switch so an in-flight poll from the OLD source is discarded
 export async function refresh() {
@@ -266,7 +294,10 @@ export async function refresh() {
       for (const p of raw) if (prevStatus.get(p.n) === 'working' && (p.status === 'idle' || p.status === 'waiting')) { noteActivity(); break }
     }
     prevStatus = new Map(raw.map((p) => [p.n, p.status]))
+    lastRaw = raw
     const panes = decorateAndSort(raw)
+    const tags = tagCounts(raw)
+    if (JSON.stringify(tags) !== JSON.stringify(state.tags)) set({ tags })
     const sig = JSON.stringify(panes)
     if (sig !== lastPanesSig) { lastPanesSig = sig; set({ ...withSel(panes), loading: false, error: null }) }  // skip identical re-push
     else if (state.loading || state.error) set({ loading: false, error: null })
@@ -486,7 +517,7 @@ function lastPromptIndex(lines: string[]): number {
   for (let i = lines.length - 1; i >= 0; i--) if (lines[i].startsWith('▶ ')) return i
   return 0
 }
-function renderTurns(turns: Turn[]): string[] {
+function renderTurns(turns: Turn[], queued: string[] = []): string[] {
   const logical: string[] = []
   const add = (l: string) => { if (l === '' && (logical.length === 0 || logical[logical.length - 1] === '')) return; logical.push(l) }
   turns.forEach((t, ti) => {
@@ -507,6 +538,9 @@ function renderTurns(turns: Turn[]): string[] {
     if (l === '' || l === DIVIDER) out.push(l)
     else out.push(...wrapPx(l, hangIndent(l)))
   }
+  // prompts waiting in the agent's queue (sent while it was busy): one clipped line each, so you
+  // can see they arrived without them reading as part of the conversation
+  if (queued.length) { out.push(''); for (const q of queued) out.push(truncateGlassText('◇ queued: ' + q)) }
   return out
 }
 function buildView() {
@@ -525,8 +559,8 @@ function buildView() {
   const scroll = state.atBottom ? ms : (userScrolled ? Math.min(state.scroll, cap) : Math.min(lastPromptIndex(lines), cap))
   set({ lines, scroll })
 }
-function applyConversation(turns: Turn[], working: boolean) {
-  convoLines = renderTurns(turns)
+function applyConversation(turns: Turn[], working: boolean, queued: string[] = []) {
+  convoLines = renderTurns(turns, queued)
   convoPromptCount = turns.reduce((n, t) => n + (t.role === 'user' ? 1 : 0), 0)
   if (jumpToPrompt) {
     // FIRST open this run: start at the most recent question (read question -> answer)
@@ -632,7 +666,7 @@ function stopAnswers() { if (answersTimer) { clearInterval(answersTimer); answer
 
 export function openPane(n: string, label: string, isClaude: boolean, cwd: string) {
   closeStream(); stopAnswers()
-  if (finished.delete(n)) repaintPanes()  // opening a finished session acknowledges it -> unpin from the "done" band
+  if (finished.delete(n)) repaintPanes()  // opening a finished session acknowledges it -> its » mark goes
   convoLines = []
   set({ activePaneN: n, activeLabel: label, activeIsClaude: isClaude, activeCwd: cwd, listSel: n,
         lines: ['…'], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', phase: 'view', draft: '', draftKind: null, status: '', typingText: '' })
@@ -644,7 +678,7 @@ export function openPane(n: string, label: string, isClaude: boolean, cwd: strin
     const pull = () => paneConversation(n, convoEtag).then((r) => {
       if (state.activePaneN !== n || r.notModified) return  // 304 -> nothing changed
       convoEtag = r.etag
-      applyConversation(r.turns, r.working)
+      applyConversation(r.turns, r.working, r.queued)
     }).catch(() => {})
     pull()
     answersTimer = setInterval(pull, 2500)
@@ -684,7 +718,8 @@ export function resetForSourceChange() {
   paneMem.clear()
   previewCache.clear()
   lastPanesSig = ''
-  set({ panes: [], loading: true, error: null, listSel: '', listPos: 0, preview: NO_PREVIEW })
+  lastRaw = []
+  set({ panes: [], tags: [], loading: true, error: null, listSel: '', listPos: 0, preview: NO_PREVIEW, previewBusy: '' })
   refresh()
 }
 

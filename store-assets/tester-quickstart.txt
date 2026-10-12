@@ -2,7 +2,7 @@ G2C — see and continue your tmux + Claude Code sessions from your Even G2 glas
 
 Run a fleet of Claude Code sessions on your computer? G2C puts them on your glasses so your work stays trackable, hands-free — over your own private Tailscale network. Nothing is sent to the app developer.
 
-• Tagged fleet, sorted by what needs you — each tmux window is a project tag.
+• Tagged fleet in your own layout order — each tmux window / Herdr workspace is a project tag.
 • Read the real conversation; double-tap jumps back to the latest prompt.
 • Reply by voice (tap, speak, send) — or type on your phone if you have no OpenAI key.
 • Approve safely — read the full command on the glasses before you pick Yes/No.

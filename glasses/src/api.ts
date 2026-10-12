@@ -31,9 +31,10 @@ export interface Pane {
   tag: string
   status: 'waiting' | 'working' | 'idle' | 'other'
   cwd: string
-  is_claude: boolean
+  is_claude: boolean   // an agent session with a readable conversation (Claude Code or Codex)
+  agent?: string       // 'claude' | 'codex' | '' — absent from a backend that predates Codex support
   is_conductor: boolean
-  done?: boolean  // client-only: set once a session goes working->idle, until it's opened — pins it in a top "done" band
+  done?: boolean  // client-only: set once a session goes working->idle, until it's opened — shown as »
   pinned?: boolean  // client-only: the user pinned this session to the top (config.ts getPins)
 }
 
@@ -66,7 +67,8 @@ export async function paneScreen(n: string, lines = 40): Promise<string> {
 // For a Claude pane: the real back-and-forth (prompts + prose replies), markdown
 // flattened, in-between stripped, oldest→newest.
 export interface Turn { role: 'user' | 'assistant'; text: string }
-export interface ConvoResult { turns: Turn[]; working: boolean; etag: string | null; notModified: boolean }
+// `queued` = prompts typed while the agent was busy that it has not taken up yet (first line of each)
+export interface ConvoResult { turns: Turn[]; working: boolean; etag: string | null; notModified: boolean; queued: string[] }
 // Passes the last etag via ?etag=; an unchanged transcript returns a tiny
 // {notModified:true} 200 (server skips read/parse/serialize). Plain 200s only — no
 // HTTP 304, which the WebView's fetch rejects when combined with cache:'no-store'.
@@ -77,8 +79,8 @@ export async function paneConversation(n: string, etag?: string | null, opts: { 
   const r = await fetch(u, { headers: authHeaders(), cache: 'no-store', signal: opts.signal })
   if (!r.ok) throw new Error(`paneConversation ${r.status}`)
   const data = await r.json()
-  if (data.notModified) return { turns: [], working: false, etag: data.etag ?? etag ?? null, notModified: true }
-  return { turns: data.turns, working: data.working, etag: data.etag ?? null, notModified: false }
+  if (data.notModified) return { turns: [], working: false, etag: data.etag ?? etag ?? null, notModified: true, queued: [] }
+  return { turns: data.turns, working: data.working, etag: data.etag ?? null, notModified: false, queued: data.queued ?? [] }
 }
 
 // Opt-in AI summary of a session's latest exchange (written by the backend with the user's own

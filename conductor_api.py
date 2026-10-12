@@ -81,7 +81,8 @@ def pane_view(src, p):
         "tag": src.window_tag(p),
         "status": _pane_status(src, p),
         "cwd": p["path"],
-        "is_claude": p["is_claude"],
+        "is_claude": p["is_claude"],            # an agent session with a readable conversation
+        "agent": p.get("agent") or ("claude" if p["is_claude"] else ""),   # 'claude' | 'codex' | ''
         "is_conductor": p["is_conductor"],
     }
 
@@ -586,7 +587,10 @@ class Handler(BaseHTTPRequestHandler):
             turns = tc.read_conversation(jsonl) if jsonl else []
             if q.get("tail", ["0"])[0] in ("1", "true"):
                 turns = _last_exchange(turns)
-            return self._json(200, {"id": p["pane_id"], "turns": turns, "working": working, "etag": etag})
+            # prompts typed while the agent is busy sit in its queue until it takes them up; only a
+            # busy session can have any (first line of each, a few at most)
+            queued = [t.split("\n", 1)[0][:200] for t in tc.queued_prompts(jsonl)[:8]] if jsonl and working else []
+            return self._json(200, {"id": p["pane_id"], "turns": turns, "working": working, "etag": etag, "queued": queued})
         m = re.fullmatch(r"/api/panes/([^/]+)/summary", path)
         if m:
             p = find_pane(src, unquote(m.group(1)))

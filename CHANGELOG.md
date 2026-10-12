@@ -6,6 +6,22 @@ project memory; this file is the short "what changed" for each build.
 > Builds: G2C ships as a single **public** `.ehpk` — it bakes no secrets, so every user
 > enters their own backend URL + token on the app's Setup screen.
 
+## 1.0.41 — 2026-10-12
+- **The list follows your layout.** Sessions are now in your multiplexer's own order — Herdr
+  workspaces, then tabs (tmux: windows, then panes) — with pinned ones on top. Before, they were
+  re-sorted by status, so a session kept moving. Status is still the mark on each row and the
+  counts in the header.
+- **Codex sessions (Herdr).** Codex CLI sessions now appear in the list (◆ working, ◇ idle; Claude
+  keeps ● ○), with the same preview and reading view. Needs the updated backend. Answering a Codex
+  approval prompt from the glasses has not been tested.
+- **Choose which workspaces to show.** The phone's settings list your workspaces with a tick each
+  (all on by default); untick one and its sessions are left off the glasses.
+- **Queued prompts.** A prompt you send while the agent is busy waits in its queue; the reading
+  view now shows one line per waiting prompt ("◇ queued: …") until the agent takes it up.
+- **The preview says when more is coming.** Its rule shows "loading…", "updating…" or
+  "summarizing…" while newer text is on the way, so you don't start reading something that is about
+  to be replaced.
+
 ## 1.0.40 — 2026-10-12
 *(1.0.39 was a test build and was never published; this entry covers both.)*
 - **Preview beside the list.** The right two thirds of the session list is now a panel for the

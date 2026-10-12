@@ -191,11 +191,13 @@ background — it's the Bluetooth bridge to the glasses.
 
 Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe = move/scroll):
 
-- **Session list** — your sessions, grouped by tmux window / Herdr workspace (the **tag**):
-  pinned (**★**) first, then finished (**»**) until you open them. Swipe to move, tap to open,
+- **Session list** — your Claude and Codex sessions in your multiplexer's own order (Herdr
+  workspaces, then tabs; tmux windows, then panes), pinned (**★**) first. **●**/**○** = Claude
+  working/idle, **◆**/**◇** = Codex, **!** = needs you, **»** = finished since you last opened it. Swipe to move, tap to open,
   double-tap to exit. The last row is **＋ new session** (one swipe up from the top). The right
   two thirds of the screen previews the highlighted session's last prompt and the end of its reply
-  (switch it off in **Connection & settings** if you prefer the plain list).
+  (switch it off in **Connection & settings** if you prefer the plain list). The same settings
+  let you untick a workspace to leave its sessions off the glasses.
 - **AI summaries (optional, off by default)** — with `ANTHROPIC_API_KEY` set on the backend, the
   phone's **Connection & settings** shows “Summarize list previews with Claude Haiku”. Turn it on
   and the preview shows a one-line summary (marked `~`) instead of the raw reply. Your backend sends

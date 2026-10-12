@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getSource, setSource, getAiSummary, setAiSummary, getPreview, setPreview } from './config'
+import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getSource, setSource, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, setHiddenTags } from './config'
 import { listPanes, health } from './api'
-import { subscribe, getSnapshot, resetForSourceChange, togglePin, previewSettingChanged } from './store'
+import { subscribe, getSnapshot, resetForSourceChange, togglePin, previewSettingChanged, workspaceFilterChanged } from './store'
 
 // Decode the `tmuxor:<base64>` blob that install.sh prints into a config.
 function decodeBlob(text: string): { base: string; token: string } | null {
@@ -31,6 +31,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [wakeChange, setWakeChange] = useState(getWakeOnChange())
   const [aiSummary, setAi] = useState(getAiSummary())
   const [preview, setPv] = useState(getPreview())
+  const [hiddenTags, setHidden] = useState(getHiddenTags())
   const [source, setSrc] = useState(getSource())
   const [sources, setSources] = useState<string[]>([])   // what the backend can serve
   const [defSource, setDefSource] = useState('')          // the backend's own default
@@ -134,7 +135,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
       <details style={{ marginTop: 14 }}>
         <summary style={summary}>How to use the glasses</summary>
         <ul style={{ margin: 0, paddingLeft: 18, color: '#b9d8c6', fontSize: 13, lineHeight: 1.6 }}>
-          <li><b>Session list</b> — swipe to move, tap to open, double-tap to exit. The right side previews the highlighted session. ★ sessions stay on top; “＋ new session” is the last row (swipe up from the top).</li>
+          <li><b>Session list</b> — swipe to move, tap to open, double-tap to exit. Sessions are in the same order as on your computer (herdr workspaces, then tabs); ★ sessions stay on top. ● ○ are Claude sessions, ◆ ◇ are Codex. The right side previews the highlighted session. “＋ new session” is the last row (swipe up from the top).</li>
           <li><b>In a session</b> — swipe to scroll, tap to reply (speak, or type here), double-tap to go back.</li>
           <li><b>When it asks you something</b> — read it, tap, swipe to your answer, tap to choose.</li>
           <li><b>Pin / unpin</b> — tap ★ above. Or on the glasses: highlight it in the session list, tap then press-and-hold to open the menu, and choose “Pin / unpin session”.</li>
@@ -184,6 +185,24 @@ export function Setup({ onSave }: { onSave: () => void }) {
           <input type="checkbox" checked={wakeChange} onChange={(e) => setWakeChange(e.target.checked)} />
           Wake the glasses when a session finishes or needs input
         </label>
+
+        {live.tags.length > 1 && (
+          <>
+            <label style={label}>Workspaces shown on the glasses (untick to leave one out)</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+              {live.tags.map((t) => (
+                <label key={t.tag} style={{ color: '#b9d8c6', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {/* applies at once, like the switches below */}
+                  <input type="checkbox" checked={!hiddenTags.includes(t.tag)} onChange={(e) => {
+                    const next = e.target.checked ? hiddenTags.filter((x) => x !== t.tag) : [...hiddenTags, t.tag]
+                    setHidden(next); setHiddenTags(next); workspaceFilterChanged()
+                  }} />
+                  {t.tag} <span style={{ color: '#6f8a7b' }}>({t.n})</span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
 
         <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* applies at once, like the summary switch below */}
