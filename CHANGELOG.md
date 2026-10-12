@@ -48,6 +48,11 @@ project memory; this file is the short "what changed" for each build.
   one-line hints replace the long explanations. The connection form folds away once you are
   connected. The session list no longer scrolls inside the page (that could trap the page on a
   phone); it shows six and expands in place.
+- **Plan usage above the list.** The line under the header shows how much of your Claude and
+  Codex plans is used, as battery-style blocks: per account the 5-hour window, then the week
+  (filled = used). The phone shows the exact percentages and has a switch for it. The backend reads
+  this from local files only: your newest Codex session, and for Claude a small status-line helper
+  (`g2c_usage_hook.py`, see SETUP.md). Needs the updated backend.
 - **API cost.** The settings page shows what your backend's own API calls cost today and over the
   last 7 days, by provider and model, at list prices (your Claude or Codex subscription is not
   part of this). Needs the updated backend.

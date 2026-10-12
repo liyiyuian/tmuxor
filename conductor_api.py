@@ -15,6 +15,7 @@ Endpoints:
   GET  /api/panes/<n>/summary                     -> {summary, etag} | {pending:true} (opt-in AI summary)
   GET  /api/panes/<n>/condensed                   -> same shape: the latest reply condensed (opt-in)
   GET  /api/usage                                 -> {today, week, since}: paid API calls and their cost by provider + model
+  GET  /api/limits                                -> {limits:[{label, agent, session, week}]}: plan usage in percent, from local files
   GET  /api/windows                               -> {windows:[{index,name,panes}]}
   POST /api/panes/<n>/send  {text, submit=true}   -> {ok, pane, submitted}
   POST /api/panes/<n>/keys  {keys}                -> {ok, pane, keys}
@@ -25,6 +26,7 @@ Run:  python conductor_api.py
 Bind: defaults to your Tailscale IP (tailscale ip -4), port 8790.
 Env:  CONDUCTOR_TOKEN (optional bearer), CONDUCTOR_API_PORT, CONDUCTOR_BIND.
 """
+import glob
 import hmac
 import json
 import os
@@ -192,6 +194,110 @@ def usage_report(now=None):
     rows = lambda d: sorted(d.values(), key=lambda a: (-a["usd"], a["provider"] or "", a["model"] or ""))
     return {"today": rows(acc["today"]), "week": rows(acc["week"]),
             "since": first if first is not None and first > week0 else None}
+
+
+# --- plan usage: how much of a Claude / Codex subscription's limits is used ---
+# Shown on the glasses above the session list. Read ONLY from files that already hold the numbers —
+# this backend never touches a login token and never calls a provider for it:
+#   * LIMITS_DIR: one small file per Claude account, written by tools/g2c_usage_hook.py from the
+#     numbers Claude Code itself hands to its status line command;
+#   * LIMITS_FILE (optional): a file another tool keeps, shaped
+#     {"data": {"<label>": {"util": 0.26, "week_util": 0.44, "reset_epoch": …, "week_reset_epoch": …}}}
+#     with fractions 0..1;
+#   * Codex: the newest session transcript, whose token_count events carry the plan's rate limits.
+LIMITS_DIR = os.path.expanduser(os.environ.get("CONDUCTOR_LIMITS_DIR", "~/.cache/g2c/usage"))
+LIMITS_FILE = os.path.expanduser(os.environ.get("CONDUCTOR_LIMITS_FILE", ""))
+_limits_cache = {"t": 0.0, "v": []}
+
+
+def _pct(x, scale=1.0):
+    try:
+        return max(0, min(100, int(round(float(x) * scale))))
+    except (TypeError, ValueError):
+        return None
+
+
+def _window(pct, resets_at, now):
+    """A window's used-percent, or None when its reset time has passed since the number was taken
+    (the window has rolled over; the old number would be wrong)."""
+    try:
+        if resets_at and float(resets_at) < now:
+            return None
+    except (TypeError, ValueError):
+        pass
+    return pct
+
+
+def _codex_limits(now):
+    files = glob.glob(os.path.join(sources.CODEX_SESSIONS, "**", "rollout-*.jsonl"), recursive=True)
+    if not files:
+        return None
+    newest = max(files, key=lambda f: os.path.getmtime(f))
+    with open(newest, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        f.seek(max(0, f.tell() - 2 * 1024 * 1024))
+        tail = f.read().split(b"\n")
+    for raw in reversed(tail):
+        if b'"rate_limits"' not in raw or b'"token_count"' not in raw:
+            continue
+        try:
+            rl = (json.loads(raw).get("payload") or {}).get("rate_limits") or {}
+        except Exception:
+            continue
+        out = {"label": "Codex", "agent": "codex", "session": None, "week": None, "at": os.path.getmtime(newest)}
+        for w in (rl.get("primary"), rl.get("secondary")):
+            if not isinstance(w, dict) or w.get("used_percent") is None:
+                continue
+            key = "week" if (w.get("window_minutes") or 0) >= 1440 else "session"   # 300 = 5 hours, 10080 = a week
+            out[key] = _window(_pct(w.get("used_percent")), w.get("resets_at"), now)
+        return out
+    return None
+
+
+def plan_limits(now=None):
+    """[{label, agent, session, week, at}] — used-percent (0-100, or None if unknown) of the short
+    window and the weekly one, per account. Cached 20 s."""
+    now = now if now is not None else time.time()
+    if now - _limits_cache["t"] < 20 and now >= _limits_cache["t"]:
+        return _limits_cache["v"]
+    out = []
+    try:
+        names = sorted(os.listdir(LIMITS_DIR))
+    except OSError:
+        names = []
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(LIMITS_DIR, name)) as f:
+                d = json.load(f)
+            out.append({"label": str(d.get("label") or name[:-5])[:12], "agent": "claude",
+                        "session": _window(_pct(d.get("five_hour")), d.get("five_hour_resets_at"), now),
+                        "week": _window(_pct(d.get("seven_day")), d.get("seven_day_resets_at"), now),
+                        "at": d.get("at")})
+        except Exception:
+            continue
+    if LIMITS_FILE:
+        try:
+            with open(LIMITS_FILE) as f:
+                d = json.load(f)
+            at = d.get("data_at") or os.path.getmtime(LIMITS_FILE)
+            for label, v in sorted((d.get("data") or {}).items()):
+                if isinstance(v, dict):
+                    out.append({"label": str(label)[:12], "agent": "claude",
+                                "session": _window(_pct(v.get("util"), 100), v.get("reset_epoch"), now),
+                                "week": _window(_pct(v.get("week_util"), 100), v.get("week_reset_epoch"), now),
+                                "at": at})
+        except Exception:
+            pass
+    try:
+        cx = _codex_limits(now)
+        if cx:
+            out.append(cx)
+    except Exception:
+        pass
+    _limits_cache["t"], _limits_cache["v"] = now, out
+    return out
 
 
 def translate_command(description, cwd):
@@ -716,6 +822,8 @@ class Handler(BaseHTTPRequestHandler):
             panes = src.list_panes(claude_only=claude_only)
             views = list(_POOL.map(lambda p: pane_view(src, p), panes)) if panes else []  # captures run concurrently
             return self._json(200, {"panes": views})
+        if path == "/api/limits":  # plan usage per account (read from local files only — see plan_limits)
+            return self._json(200, {"limits": plan_limits()})
         if path == "/api/usage":   # what the paid API calls cost: today and the last 7 days, by provider and model
             return self._json(200, usage_report())
         if path == "/api/windows":

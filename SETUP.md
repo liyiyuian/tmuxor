@@ -120,6 +120,25 @@ tailscale serve status      # shows your https URL, e.g. https://<host>.<tailnet
 Copy that **HTTPS URL** — you'll enter it in the glasses app. (If `serve` needs sudo every
 time, run `sudo tailscale set --operator=$USER` once.)
 
+### 2c-bis. (Optional) Plan usage on the glasses
+
+The line above the session list can show how much of your Claude and Codex plans is used, as
+blocks: for each account the 5-hour window, then the week (filled = used). The backend only reads
+local files for this — it never touches a login token.
+
+- **Codex** needs nothing: the numbers are read from your newest Codex session file.
+- **Claude Code** hands the numbers to its status line command. Let `g2c_usage_hook.py` (installed
+  next to the backend, in `~/.local/share/tmuxor/`) save them — either use it as your status line
+  in Claude Code's `settings.json`:
+  `"statusLine": {"type": "command", "command": "python3 ~/.local/share/tmuxor/g2c_usage_hook.py"}`
+  or, if you already have a status line script, add this near its top and keep using `$input`:
+  `input=$(cat); printf '%s' "$input" | python3 ~/.local/share/tmuxor/g2c_usage_hook.py save`
+  With several accounts, set `G2C_USAGE_LABEL` (e.g. `P`, `W`) in each one's environment.
+- Already keep these numbers in a file of your own? Point `CONDUCTOR_LIMITS_FILE` at a JSON file
+  shaped `{"data": {"P": {"util": 0.26, "week_util": 0.44, "reset_epoch": …, "week_reset_epoch": …}}}`.
+
+Switch the line off on the phone under **On the glasses → Plan usage**.
+
 ### 2d. Herdr
 
 G2C reads your sessions from **[Herdr](https://herdr.dev/)**, which reports each session's

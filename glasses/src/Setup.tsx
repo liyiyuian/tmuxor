@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense } from './config'
+import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense, getUsageLine, setUsageLine } from './config'
 import { listPanes, getUsage, type Usage, type UsageRow } from './api'
-import { subscribe, getSnapshot, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged } from './store'
+import { subscribe, getSnapshot, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged, loadLimits } from './store'
 
 // Decode the `tmuxor:<base64>` blob that install.sh prints into a config.
 function decodeBlob(text: string): { base: string; token: string } | null {
@@ -83,6 +83,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [hiddenTags, setHidden] = useState(getHiddenTags())
   const [condense, setCond] = useState(getCondense())
   const [usage, setUsage] = useState<Usage | null>(null)
+  const [usageLine, setUl] = useState(getUsageLine())
   const [allSessions, setAllSessions] = useState(false)  // the session list shows its first few until asked for the rest
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -233,6 +234,11 @@ export function Setup({ onSave }: { onSave: () => void }) {
             <Toggle label="Condensed replies" hint="Open a session to its latest reply cut to one screen. Sends that request and reply to Anthropic with your own key." on={condense}
               onChange={(v) => { setCond(v); setCondense(v); condenseSettingChanged() }} />
           )}
+          <Toggle label="Plan usage" on={usageLine}
+            hint={live.limits.length
+              ? live.limits.map((l) => `${l.label} ${[l.session, l.week].map((v) => v == null ? '–' : v + '%').join(' / ')}`).join(' · ') + ' (5-hour / week used)'
+              : 'Blocks above the list showing how much of your Claude and Codex plans is used.'}
+            onChange={(v) => { setUl(v); setUsageLine(v); loadLimits(true) }} />
           <Toggle label="Wake on finish" hint="Light up when a session finishes or needs you." on={wakeChange}
             onChange={(v) => { setWakeChange(v); setWakeOnChange(v) }} />
           <div style={{ ...rowBtn, cursor: 'default', borderBottom: 'none', flexWrap: 'wrap' }}>

@@ -7,7 +7,7 @@ import { truncateGlassText, getTextWidth } from 'even-toolkit/pretext'
 import { createGlassScreenRouter, type GlassScreen } from 'even-toolkit/glass-screen-router'
 import { listRows, listRow, PREVIEW_PX, NO_PREVIEW, AI_MARK, type AppState } from './store'
 import type { Pane } from './api'
-import { isConfigured, getPreview } from './config'
+import { isConfigured, getPreview, getUsageLine } from './config'
 
 export interface Ctx {
   exitApp: () => void
@@ -41,6 +41,19 @@ export interface Ctx {
 // hollow = idle, » = working, filled = finished since you last opened it, ! = needs you.
 // A Codex session has a diamond where Claude has a circle.
 const GLYPH: Record<string, string> = { waiting: '!', working: '»', idle: '○', other: '·' }
+// Plan usage as battery-style blocks, one group per account: the short (5-hour) window, then the
+// week — filled = used. ■ and □ are the only block pair the glasses font has (░ ▮ ▯ are missing).
+// As many cells per meter as fit on one line: 5, else 4, else 3.
+const cells = (pct: number | null, n: number) => pct == null ? '–' : '■'.repeat(Math.round(pct / 100 * n)) + '□'.repeat(n - Math.round(pct / 100 * n))
+const short = (label: string, agent: string) => agent === 'codex' ? 'Cx' : label.length <= 2 ? label : label.slice(0, 1).toUpperCase()
+export function usageLine(limits: AppState['limits']): string {
+  if (!limits.length) return ''
+  for (const n of [5, 4, 3]) {
+    const text = limits.map((l) => `${short(l.label, l.agent)} ${[l.session, l.week].filter((v, i) => v != null || (i === 1 && l.session == null)).map((v) => cells(v, n)).join(' ')}`).join('   ')
+    if (getTextWidth(text) <= 548) return text
+  }
+  return ''
+}
 // The workspace tag in a list row. Beside the preview the row is a third of the screen, so the tag
 // is cut to its first character and the session's own name gets the room (the panel's title shows
 // the whole tag). A pinned session's tag is in CAPITALS: the font has no bold.
@@ -150,7 +163,10 @@ const listScreen: GlassScreen<AppState, Ctx> = {
     const head = (n: number) => `SESSIONS ${s.panes.length} · p${page}/${pages}  ${segs.slice(0, n).join(' · ') || 'no sessions'}`
     let n = segs.length
     while (n > 1 && getTextWidth(head(n)) > 548) n--
-    return { lines: [...glassHeader(head(n)), ...list] }
+    // the line under the header is otherwise empty: plan usage goes there, as battery-style blocks
+    const hdr = glassHeader(head(n)), use = getUsageLine() ? usageLine(s.limits) : ''
+    if (use) hdr[1] = line(use, 'meta')
+    return { lines: [...hdr, ...list] }
   },
   action(a, nav, s, ctx) {
     if (a.type === 'GO_BACK') { ctx.exitApp(); return nav } // root double-tap = system exit dialog

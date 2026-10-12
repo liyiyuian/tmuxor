@@ -1,10 +1,10 @@
 // External store + actions for the glasses control flow.
 // Screens: list <-> detail. Within detail, a phase drives the sub-state:
 //   view (scroll live pane, or MENU mode if the pane is asking) -> listening (mic) -> confirm (send).
-import { listPanes, paneScreen, paneConversation, paneSummary, paneCondensed, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
+import { listPanes, getLimits, type Limit, paneScreen, paneConversation, paneSummary, paneCondensed, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
 import { GlassBridgeSource } from 'even-toolkit/stt'
 import { getTextWidth, truncateGlassText } from 'even-toolkit/pretext'
-import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins, getAiSummary, getPreview, getHiddenTags, getCondense } from './config'
+import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins, getAiSummary, getPreview, getHiddenTags, getCondense, getUsageLine } from './config'
 
 export type Phase = 'view' | 'listening' | 'confirm'
 const SLOTS = 9
@@ -43,6 +43,7 @@ export interface AppState {
   voiceChecked: string[]  // when voice off, the locations the backend checked for a key
   canSummarize: boolean   // backend has an Anthropic key -> AI preview summaries can be offered (opt-in)
   canCondense: boolean    // …and it can condense a reply for the reading view (opt-in, its own switch)
+  limits: Limit[]         // plan usage per account, for the line above the list (empty = none known)
   asleep: boolean    // glasses HUD blanked after inactivity (idle screen-sleep)
   phase: Phase
   draft: string
@@ -69,7 +70,7 @@ export interface AppState {
 let state: AppState = {
   panes: [], tags: [], loading: true, error: null, listSel: '', listPos: 0, preview: [],
   activePaneN: null, activeLabel: '', activeIsClaude: false, activeCwd: '',
-  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], canSummarize: false, canCondense: false, previewBusy: '', asleep: false,
+  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], canSummarize: false, canCondense: false, limits: [], previewBusy: '', asleep: false,
   phase: 'view', draft: '', draftKind: null, busy: false, status: '', typingText: '', draftLines: [], confirmScroll: 0, lastCost: 0, totalCost: 0,
   newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newCreate: false, newStatus: '', newPaneN: null,
 }
@@ -298,6 +299,14 @@ function tagCounts(raw: Pane[]): { tag: string; n: number }[] {
   for (const p of [...raw].sort((a, b) => a.window - b.window || a.pane_index - b.pane_index)) m.set(p.tag, (m.get(p.tag) ?? 0) + 1)
   return [...m].map(([tag, n]) => ({ tag, n }))
 }
+// Plan usage moves slowly: ask at most once a minute, and only while the line is switched on.
+let limitsAt = 0
+export function loadLimits(force = false) {
+  if (!getUsageLine()) { if (state.limits.length) set({ limits: [] }); return }
+  if (hostGone || (!force && Date.now() - limitsAt < 60_000)) return
+  limitsAt = Date.now()
+  getLimits().then((l) => { if (JSON.stringify(l) !== JSON.stringify(state.limits)) set({ limits: l }) }).catch(() => {})
+}
 let fleetGen = 0 // bumped on a backend switch so an in-flight poll from the OLD source is discarded
 export async function refresh() {
   // Do NOT hit the network before the user has entered a backend URL + token: with an empty base
@@ -330,6 +339,7 @@ export async function refresh() {
     else if (state.loading || state.error) set({ loading: false, error: null })
     health().then((h) => set({ voiceOn: h.voice, voiceChecked: h.checked || [], canSummarize: !!h.summary, canCondense: !!h.condense })).catch(() => {})
     showPreview()  // keep the highlighted session's preview current
+    loadLimits()
   } catch (e) { if (gen === fleetGen) set({ loading: false, error: String(e) }) }
 }
 

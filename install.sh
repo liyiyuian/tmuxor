@@ -51,6 +51,9 @@ for f in conductor_api.py tmux_conductor.py sources.py; do
     curl -fsSL "$RAW/$f" -o "$INSTALL_DIR/$f" || die "could not download $f from $RAW"
   fi
 done
+# optional helper: lets the glasses show how much of your Claude plan is used (see SETUP.md)
+if [ -n "${TMUXOR_SRC:-}" ]; then cp "$TMUXOR_SRC/tools/g2c_usage_hook.py" "$INSTALL_DIR/g2c_usage_hook.py" 2>/dev/null || true
+else curl -fsSL "$RAW/tools/g2c_usage_hook.py" -o "$INSTALL_DIR/g2c_usage_hook.py" 2>/dev/null || true; fi
 ok "backend in $INSTALL_DIR"
 
 # 3) token (reuse existing if present) ---------------------------------------

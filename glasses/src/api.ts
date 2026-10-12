@@ -99,6 +99,17 @@ export async function paneCondensed(n: string): Promise<{ summary?: string | nul
   return r.json()
 }
 
+// Plan usage per account: how much of a Claude / Codex subscription's limits is used, in percent
+// (null = unknown). `session` is the short window (5 hours), `week` the weekly one. The backend
+// reads these from local files only. Empty from a backend that predates this.
+export interface Limit { label: string; agent: string; session: number | null; week: number | null }
+export async function getLimits(): Promise<Limit[]> {
+  const r = await fetch(`${base()}/api/limits`, { headers: authHeaders(), cache: 'no-store' })
+  if (!r.ok) return []
+  const d = await r.json()
+  return Array.isArray(d.limits) ? d.limits : []
+}
+
 // What the backend's paid API calls cost — today and the last 7 days, per provider and model.
 // `since` (seconds) is set when the backend has been counting for less than 7 days. Null from a
 // backend that predates this.
