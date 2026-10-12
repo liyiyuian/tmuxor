@@ -13,14 +13,17 @@
 # Testing hooks (not for normal use):
 #   TMUXOR_SRC=/path/to/repo   copy backend files from a local dir instead of curl
 #   TMUXOR_DRYRUN=1            don't touch systemd/tailscale/sudo (print instead)
-#   TMUXOR_OPENAI_KEY=sk-...   supply the OpenAI key non-interactively ("" = skip voice)
+#   TMUXOR_OPENAI_KEY=sk-...   supply the OpenAI key non-interactively ("" = none given: an
+#                              existing key is kept, a fresh install gets no voice)
 set -euo pipefail
 
 REPO="${TMUXOR_REPO:-liyiyuian/tmuxor}"
 RAW="https://raw.githubusercontent.com/${REPO}/main"
-PORT="${CONDUCTOR_API_PORT:-8790}"
 INSTALL_DIR="${TMUXOR_DIR:-$HOME/.local/share/tmuxor}"
 ENV_FILE="${TMUXOR_ENV:-$HOME/.config/tmux-conductor.env}"
+# running this again is how you upgrade: what an earlier run set up (port, OpenAI key, token) is kept
+old(){ sed -n "s/^$1=//p" "$ENV_FILE" 2>/dev/null | head -1 || true; }   # (no settings file yet = a fresh install)
+PORT="${CONDUCTOR_API_PORT:-$(old CONDUCTOR_API_PORT)}"; PORT="${PORT:-8790}"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 DRY="${TMUXOR_DRYRUN:-0}"
 
@@ -57,8 +60,7 @@ else curl -fsSL "$RAW/tools/g2c_usage_hook.py" -o "$INSTALL_DIR/g2c_usage_hook.p
 ok "backend in $INSTALL_DIR"
 
 # 3) token (reuse existing if present) ---------------------------------------
-TOKEN=""
-[ -f "$ENV_FILE" ] && TOKEN=$(sed -n 's/^CONDUCTOR_TOKEN=//p' "$ENV_FILE" | head -1)
+TOKEN=$(old CONDUCTOR_TOKEN)
 if [ -z "$TOKEN" ]; then
   TOKEN="tmxr_$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')"
   ok "generated a new access token"
@@ -68,14 +70,17 @@ fi
 
 # 4) OpenAI key (OPTIONAL) — enables VOICE input. Without it you just type replies and
 #    new-session names on your phone instead. ---------------------------------
+OLD_KEY=$(old OPENAI_API_KEY)
 if [ "${TMUXOR_OPENAI_KEY+set}" = set ]; then
   OPENAI_KEY="$TMUXOR_OPENAI_KEY"
 elif [ -r /dev/tty ]; then
-  printf 'OpenAI API key (optional) — enables VOICE input via Whisper; without it you type on your phone. Paste it, or Enter to skip: '
+  if [ -n "$OLD_KEY" ]; then printf 'OpenAI API key — one is already set. Enter keeps it, or paste a new one: '
+  else printf 'OpenAI API key (optional) — enables VOICE input via Whisper; without it you type on your phone. Paste it, or Enter to skip: '; fi
   read -r OPENAI_KEY </dev/tty || OPENAI_KEY=""
 else
   OPENAI_KEY=""
 fi
+[ -z "$OPENAI_KEY" ] && OPENAI_KEY="$OLD_KEY"   # nothing new given: keep the key you had (it used to be dropped on a re-run)
 [ -n "$OPENAI_KEY" ] && ok "voice input enabled" || warn "no OpenAI key — voice input off; you'll type replies/new-session names on your phone (re-run later to add voice)."
 
 # 5) write env file (chmod 600) ---------------------------------------------
@@ -116,7 +121,9 @@ WantedBy=default.target
 UNIT
 ok "wrote service unit"
 run systemctl --user daemon-reload
-run systemctl --user enable --now tmux-conductor.service
+run systemctl --user enable tmux-conductor.service
+# restart, not just start: on an upgrade the service is already running the OLD files
+run systemctl --user restart tmux-conductor.service
 [ "$DRY" = 1 ] || warn "to keep it running after logout: sudo loginctl enable-linger $USER"
 
 # 7) expose on the tailnet ---------------------------------------------------
