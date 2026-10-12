@@ -25,7 +25,6 @@ const bridge = EvenAppBridge.getInstance()
 // arrived as a tap on SDK 0.0.11 and approved the highlighted option. Drop anything the SDK can't
 // name before any listener (even-toolkit's included) sees it, so a future gesture can't do the same.
 const listen = bridge.onEvenHubEvent.bind(bridge)
-let lastHoldAt = 0
 
 // Gesture trace — DIAGNOSTIC BUILDS ONLY (VITE_TRACE=1 at build time; a normal build compiles it
 // out). Posts what the glasses send for each gesture, and what the app made of it, to the backend's
@@ -61,23 +60,25 @@ bridge.onEvenHubEvent = (cb) => listen((e) => {
     const raw = pickLoose(e.jsonData ?? {}, 'eventType')
     if (raw != null && OsEventTypeList.fromJson(raw) === undefined) return
   }
-  // Press and hold (SDK 0.0.14+). even-toolkit has no such gesture, so it is handled here and never
-  // reaches it: a hold must not be read as anything else. Its release is swallowed too.
-  // This wrapper runs once for EVERY listener (even-toolkit's and ours), so act on a hold once:
-  // a second hold cannot follow the first within a fraction of a second.
-  if (ev?.eventType === OsEventTypeList.LONG_PRESS_EVENT) {
-    if (Date.now() - lastHoldAt > 400) { lastHoldAt = Date.now(); trace('APP hold handled'); onHold() }
-    return
-  }
-  if (ev?.eventType === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) return
+  // Press and hold (SDK 0.0.14+) is NOT a usable gesture on the real G2 (traced on the glasses,
+  // 2026-10-12): they send an ordinary tap first and the hold event only 0.7-0.9 s later, so the
+  // tap has already acted by the time a hold could be recognised. Swallow the hold and its release
+  // so they are never read as anything else; extra actions go in the system menu below instead.
+  if (ev?.eventType === OsEventTypeList.LONG_PRESS_EVENT || ev?.eventType === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) return
   cb(e)
 })
 
 // Contextual menu (SDK 0.0.14+): the OS overlay raised by tap-then-hold. even-toolkit builds every
 // page itself with no menu hook, and the host REPLACES the menu on each build (omitting it clears
-// it) — so carry our one action on every page build. On an older Even app this is a silent no-op.
-const MENU_PIN = 1
-const menuObject = { menuItems: [{ itemName: 'Pin / unpin session', itemID: MENU_PIN }] }
+// it) — so carry our actions on every page build. On an older Even app this is a silent no-op.
+// The labels are fixed (they only change with a page build), so each is one plain verb; an item
+// that does not apply where you are does nothing.
+const MENU_PIN = 1, MENU_NEXT = 2, MENU_VIEW = 3
+const menuObject = { menuItems: [
+  { itemName: 'Next that needs you', itemID: MENU_NEXT },
+  { itemName: 'Condensed / full reply', itemID: MENU_VIEW },
+  { itemName: 'Pin / unpin session', itemID: MENU_PIN },
+] }
 // what each text container on the glasses currently shows (see the dedup below); a page build
 // replaces the containers, so it empties this
 const shown = new Map<number, string>()
@@ -102,22 +103,16 @@ bridge.textContainerUpgrade = async (u) => {
 }
 // The menu click arrives outside even-toolkit's action pipeline, so track where the glasses are.
 let lastNav: GlassNavState = { screen: 'list', highlightedIndex: 0 }
-// Press and hold = "the other view", never an action on a session: in the list it jumps to the next
-// session that needs you; in an open session it switches between the condensed and the full reply.
-// Like every gesture, the first one on a sleeping screen only wakes it.
-function onHold() {
-  const wasAsleep = getSnapshot().asleep
-  noteActivity()
-  if (wasAsleep) return
-  if (getSnapshot().activePaneN) toggleShortView()
-  else if (lastNav.screen === 'list') jumpToAttention()
-}
-// "Pin / unpin session": the open session, else the highlighted list row.
-function pinFromMenu() {
+// A pick from the system menu. Pin / unpin: the open session, else the highlighted list row.
+// Next that needs you: in the list, the next waiting session below the highlight (else the top).
+// Condensed / full reply: the open session's latest reply (when Condensed replies is on).
+function onMenu(id?: number) {
+  if (id !== MENU_PIN && id !== MENU_NEXT && id !== MENU_VIEW) return
   const s = getSnapshot()
   noteActivity()
-  const n = s.activePaneN ?? (lastNav.screen === 'list' ? listRows(s)[listRow(s)] : '')
-  if (n) togglePin(n)
+  if (id === MENU_NEXT) { if (!s.activePaneN && lastNav.screen === 'list') jumpToAttention() }
+  else if (id === MENU_VIEW) toggleShortView()
+  else { const n = s.activePaneN ?? (lastNav.screen === 'list' ? listRows(s)[listRow(s)] : ''); if (n) togglePin(n) }
 }
 
 const ctx: Ctx = {
@@ -145,7 +140,7 @@ export function App() {
     waitForEvenAppBridge()
       .then((b) => {
         unsub = b.onLaunchSource(() => { refresh() })
-        unsubMenu = b.onEvenHubEvent((e) => { if (e.menuItemClickEvent?.itemID === MENU_PIN) pinFromMenu() })
+        unsubMenu = b.onEvenHubEvent((e) => onMenu(e.menuItemClickEvent?.itemID))
       })
       .catch(() => {})
     // full teardown (SSE stream, conversation poll, mic) if App ever unmounts

@@ -139,7 +139,7 @@ const listScreen: GlassScreen<AppState, Ctx> = {
     const idle = Math.max(0, s.panes.length - work - wait - done)
     // one consistent bar; drop zero fields instead of hiding idle when busy
     const segs = [wait && `${wait}! need you`, work && `${work}» working`, done && `${done}● done`, idle && `${idle}○ idle`].filter(Boolean)
-    // Sessions first (pinned ★ band on top, then the multiplexer's own order — store.ts
+    // Sessions first (pinned band on top, finished ones next, then the multiplexer's own order — store.ts
     // decorateAndSort); "＋ new session" is the LAST row, one swipe up from the top (the list wraps).
     const items: (Pane | null)[] = [...s.panes, null]
     const hi = listRow(s)
@@ -307,13 +307,10 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
     const up = top > 0 ? '▲' : ' '
     const dn = top + slots < s.lines.length ? '▼' : ' '
     const wk = s.working ? ' »' : ''  // » = working, as in the list (⋯ is not in the G2 font, it drew blank)
-    // the tap hint, and — exactly when a press and hold would do something (store toggleShortView) —
-    // what it switches to
-    const hold = s.holdTo && !s.working ? ` hold=${s.holdTo}` : ''
-    const talk = (s.voiceOn ? 'tap=talk' : 'tap=type') + hold
+    const talk = s.voiceOn ? 'tap=talk' : 'tap=type'
     const pos = s.lines.length > slots ? ` ${Math.min(top + slots, s.lines.length)}/${s.lines.length}` : ''
-    // a long name gives way to the hints (they are the only place the glasses say what a gesture
-    // does), not the other way round
+    // a long name gives way to the hint (the only place the glasses say what a tap does), not the
+    // other way round
     const tail = `${wk}  ${up}${dn}${pos}  ${talk}`
     const head = s.status ? `${title}  ${s.status}` : truncateGlassText(title, Math.max(120, 548 - getTextWidth(tail))) + tail
     return { lines: [

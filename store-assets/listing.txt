@@ -29,7 +29,8 @@ at once. It brings the Claude Code and Codex sessions running in Herdr
 for the laptop.
 
 • Your layout, on your glasses — sessions are listed in Herdr's own order
-  (workspaces, then tabs), and each workspace is a project tag. Choose which
+  (workspaces, then tabs), with finished ones brought to the top until you
+  open them, and each workspace is a project tag. Choose which
   workspaces to show.
 • Status at a glance — idle, working, needs you, or finished since you last
   opened it, for Claude Code and Codex sessions alike.

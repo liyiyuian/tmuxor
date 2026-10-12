@@ -61,7 +61,7 @@ function CostTable({ title, rows }: { title: string; rows: UsageRow[] }) {
   )
 }
 // one short "what changed" note, shown once: a new gesture is useless if nobody knows it exists
-const NEWS_ID = 'hold-1'
+const NEWS_ID = 'menu-1'
 const SESSIONS_SHOWN = 6  // pinned sessions sort first, so they are always among these
 // screen-sleep choices; a value set by an older build that is not one of these is shown as its own choice
 const SLEEP: [number, string][] = [[0, 'Never'], [30, '30 s'], [60, '1 min'], [300, '5 min']]
@@ -185,10 +185,10 @@ export function Setup({ onSave }: { onSave: () => void }) {
 
       {configured && news && (
         <div data-testid="news" style={{ ...card, padding: '12px 14px', marginTop: 14, borderColor: C.accent }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>New: press and hold</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>New in the glasses menu</div>
           <div style={{ fontSize: 13, color: C.soft, marginTop: 4, lineHeight: 1.45 }}>
-            In the list it jumps to the next session that needs you, then back to the top. In a session it switches between
-            the condensed and the full reply (when Condensed replies is on). Tap, double-tap and swipe work as before.
+            Tap, then hold opens the menu. It now has <b>Next that needs you</b> (in the session list), <b>Condensed / full reply</b> (in
+            a session, when Condensed replies is on) and <b>Pin / unpin session</b>. Tap, double-tap and swipe work as before.
           </div>
           <button type="button" style={{ ...pill(true), marginTop: 10, cursor: 'pointer', fontFamily: 'inherit' }}
             onClick={() => { setSeenNews(NEWS_ID); setNews(false) }}>Got it</button>
@@ -198,6 +198,22 @@ export function Setup({ onSave }: { onSave: () => void }) {
       {!configured && CONNECTION}
 
       {/* everyday settings, most used first. Every control is a button and applies at once. */}
+      {live.tags.length > 1 && (
+        <Section title="Workspaces" hint="Tap one to hide it from the glasses, tap again to bring it back.">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {live.tags.map((t) => {
+              const shown = !hiddenTags.includes(t.tag)
+              return (
+                <button key={t.tag} type="button" data-testid="ws-chip" aria-pressed={shown} aria-label={`${t.tag}, ${t.n} session${t.n === 1 ? '' : 's'}, ${shown ? 'shown' : 'hidden'}`} style={chip(shown)}
+                  onClick={() => { const next = shown ? [...hiddenTags, t.tag] : hiddenTags.filter((x) => x !== t.tag); setHidden(next); setHiddenTags(next); workspaceFilterChanged() }}>
+                  {t.tag} <span style={{ color: C.mute, fontSize: 12 }}>{t.n}</span>
+                </button>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
       {configured && !live.error && live.panes.length > 0 && (
         <Section title="Sessions" hint="Tap a session to pin it to the top of your glasses.">
           {/* never a scrolling box inside the scrolling page: on a phone a swipe that starts on it moves
@@ -221,22 +237,6 @@ export function Setup({ onSave }: { onSave: () => void }) {
         </Section>
       )}
 
-      {live.tags.length > 1 && (
-        <Section title="Workspaces" hint="Tap one to hide it from the glasses, tap again to bring it back.">
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {live.tags.map((t) => {
-              const shown = !hiddenTags.includes(t.tag)
-              return (
-                <button key={t.tag} type="button" data-testid="ws-chip" aria-pressed={shown} aria-label={`${t.tag}, ${t.n} session${t.n === 1 ? '' : 's'}, ${shown ? 'shown' : 'hidden'}`} style={chip(shown)}
-                  onClick={() => { const next = shown ? [...hiddenTags, t.tag] : hiddenTags.filter((x) => x !== t.tag); setHidden(next); setHiddenTags(next); workspaceFilterChanged() }}>
-                  {t.tag} <span style={{ color: C.mute, fontSize: 12 }}>{t.n}</span>
-                </button>
-              )
-            })}
-          </div>
-        </Section>
-      )}
-
       <Section title="On the glasses">
         <div style={card}>
           <Toggle label="Preview" hint="Show the highlighted session's latest reply beside the list." on={preview}
@@ -246,7 +246,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
               onChange={(v) => { setAi(v); setAiSummary(v) }} />
           )}
           {live.canCondense && (
-            <Toggle label="Condensed replies" hint="Open a session to its latest reply cut to one screen; press and hold for the full reply. Sends that request and reply to Anthropic with your own key." on={condense}
+            <Toggle label="Condensed replies" hint="Open a session to its latest reply cut to one screen; the glasses menu switches to the full reply. Sends that request and reply to Anthropic with your own key." on={condense}
               onChange={(v) => { setCond(v); setCondense(v); condenseSettingChanged() }} />
           )}
           <Toggle label="Plan usage" on={usageLine}
@@ -291,7 +291,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
           <li><b>List</b> — swipe to move, tap to open, double-tap to exit.</li>
           <li><b>In a session</b> — swipe to scroll, tap to reply (speak, or type here), double-tap to go back.</li>
           <li><b>When it asks you something</b> — read it, tap, swipe to your answer, tap to choose.</li>
-          <li><b>Press and hold</b> — in the list: jump to the next session that needs you, then back to the top. In a session, with Condensed replies on: switch between the condensed and the full reply. It never sends or approves anything.</li>
+          <li><b>The glasses menu</b> (tap, then hold) — <i>Next that needs you</i> jumps down the list to the next session waiting on you, then back to the top. <i>Condensed / full reply</i> switches an open session's reply (with Condensed replies on). <i>Pin / unpin session</i> keeps a session on top.</li>
           <li><b>Marks</b> — ○ idle · » working · ● finished · ! needs you (Codex: ◇ ◆). CAPITALS = pinned. ＊ = written by AI.</li>
           <li><b>Pin from the glasses</b> — highlight a session, tap then press and hold, choose “Pin / unpin session”.</li>
         </ul>

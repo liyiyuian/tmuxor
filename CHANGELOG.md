@@ -7,18 +7,16 @@ project memory; this file is the short "what changed" for each build.
 > enters their own backend URL + token on the app's Setup screen.
 
 ## 1.0.41 — 2026-10-12
-- **Press and hold.** A fourth gesture, and it never sends or approves anything — it only changes
-  what you are looking at. In the session list it jumps to the next session that needs you (below
-  the highlighted row; with none below, back to the top). In an open session, with "Condensed
-  replies" on, it switches between the condensed and the full reply; the top row shows `hold=full`
-  or `hold=short` whenever a hold will do something (not for a short reply that was never
-  condensed). Reopening a session starts from the phone's setting again. On an approval prompt and
-  while you are replying it does nothing, and on a sleeping screen it only wakes it. Tap, double-tap and swipe
-  are unchanged. The phone shows a one-time note about it.
-- **The list follows your layout.** Sessions are now in your multiplexer's own order — Herdr
-  workspaces, then tabs (tmux: windows, then panes) — with pinned ones on top. Before, they were
-  re-sorted by status, so a session kept moving. Status is still the mark on each row and the
-  counts in the header.
+- **More in the glasses menu.** The system menu (tap, then hold) now has **Next that needs you**
+  — in the session list it jumps to the next session waiting on you below the highlighted row, and
+  with none below, back to the top — and **Condensed / full reply**, which switches an open
+  session's latest reply (with "Condensed replies" on; reopening starts from the phone's setting
+  again), next to **Pin / unpin session**. A plain press and hold is not used: on the glasses it
+  arrives as an ordinary tap first, so it could never be told apart from one in time.
+- **The list follows your layout.** Sessions are in Herdr's own order — workspaces, then tabs —
+  with pinned ones on top. A session that finished since you last opened it (●) comes up to the top
+  and goes back to its place once you open it; working, idle and needs-you sessions stay where
+  they are (their mark and the counts in the header show the status).
 - **Codex sessions.** Codex CLI sessions now appear in the list, named after their Herdr tab, with
   the same preview and reading view. Needs the updated backend. Answering a Codex approval prompt
   from the glasses has not been tested.

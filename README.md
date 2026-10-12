@@ -76,7 +76,8 @@ replies — everything else happens on the glasses with **three gestures**, reas
 
 > **tap** = the primary action · **double-tap** = back · **swipe up/down** = move / scroll
 
-- **The fleet** — your sessions in Herdr's own order (workspaces, then tabs), pinned ones on top:
+- **The fleet** — your sessions in Herdr's own order (workspaces, then tabs), pinned ones on top,
+  then any that finished since you last opened them:
   **!** waiting on you · **»** working · **○** idle · **●** finished since you last opened it
   (Codex sessions use **◇** and **◆**). Each row is `tag  title` (the tag is the Herdr workspace).
   Swipe to scroll (**▶** marks the selected row), tap to open. The last row,
@@ -88,7 +89,9 @@ replies — everything else happens on the glasses with **three gestures**, reas
 - **Pinning** — keep the sessions you care about at the top, marked **★**. Tap ★ next to a
   session on your phone. Or on the glasses: highlight it in the session list, **tap then
   press-and-hold** to open the system menu, and choose **Pin / unpin session** (needs Even app
-  2.2.10+). Pins are saved on your phone.
+  2.2.10+). Pins are saved on your phone. The same menu has **Next that needs you** (jumps down
+  the list to the next session waiting on you, then back to the top) and **Condensed / full
+  reply** (switches an open session's reply when condensed replies are on).
 - **Reading a session** — opens at the latest question. Swipe to scroll the real prompts and
   replies. **Double-tap** walks you back toward the live edge — latest prompt → bottom → out to
   the list. Tap to reply.

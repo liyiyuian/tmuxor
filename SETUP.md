@@ -205,7 +205,8 @@ background — it's the Bluetooth bridge to the glasses.
 Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe = move/scroll):
 
 - **Session list** — your Claude and Codex sessions in Herdr's own order (workspaces, then
-  tabs), pinned (**★**) first. **○** idle, **»** working, **●** finished since you last opened
+  tabs), pinned (**★**) first; a session that finished since you last opened it comes up to the
+  top until you open it. **○** idle, **»** working, **●** finished since you last opened
   it, **!** needs you; a Codex session uses **◇** and **◆**. A session is named after its Claude
   session name, or its Herdr tab for Codex. Swipe to move, tap to open,
   double-tap to exit. The last row is **＋ new session** (one swipe up from the top). The right
@@ -222,7 +223,9 @@ Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe =
   summary is one small Claude Haiku request (a few hundred to ~2,000 input tokens).
 - **Pin a session** — tap ★ next to it on the phone. Or on the glasses: highlight it in the
   session list, tap then press-and-hold to open the system menu, and choose **Pin / unpin
-  session** (Even app 2.2.10+).
+  session** (Even app 2.2.10+). The same menu has **Next that needs you** (in the list: jump to
+  the next session waiting on you, then back to the top) and **Condensed / full reply** (in a
+  session, with condensed replies on).
 - **Conversation** — opens at the latest question; swipe to scroll, **tap = talk** (speak a
   reply → review screen → tap to send), double-tap = back.
 - **New session** — pick a **tag** (an existing workspace or ＋ speak a new one) → speak a
