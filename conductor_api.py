@@ -14,6 +14,7 @@ Endpoints:
   GET  /api/panes/<n>/conversation[?tail=1]       -> {id, turns:[{role,text}...], working}  (tail = latest exchange only)
   GET  /api/panes/<n>/summary                     -> {summary, etag} | {pending:true} (opt-in AI summary)
   GET  /api/panes/<n>/condensed                   -> same shape: the latest reply condensed (opt-in)
+  GET  /api/usage                                 -> {today, week, since}: paid API calls and their cost by provider + model
   GET  /api/windows                               -> {windows:[{index,name,panes}]}
   POST /api/panes/<n>/send  {text, submit=true}   -> {ok, pane, submitted}
   POST /api/panes/<n>/keys  {keys}                -> {ok, pane, keys}
@@ -120,6 +121,79 @@ def _anthropic_key():
     return None
 
 
+# --- what the paid API calls cost ---
+# Every call this backend makes to a paid API is appended to a small ledger (one JSON line each, no
+# content — just when, which model, how many tokens), so the phone can show what today and the last
+# 7 days cost, by provider and model. PRICES are list prices in USD per million tokens (input,
+# output) from https://platform.claude.com/docs/en/about-claude/pricing as read on 2026-10-12
+# (Haiku 5.5 at its "prompts up to 100,000 tokens" rate — ours are a few thousand). Add or override
+# models with CONDUCTOR_PRICES='{"model-id": [input, output]}'; a model with no price is still
+# counted, its cost shown as unknown.
+USAGE_LOG = os.path.expanduser(os.environ.get("CONDUCTOR_USAGE_LOG", "~/.tmux-conductor-usage.jsonl"))
+PRICES = {"claude-haiku-5-5": (0.10, 0.50), "claude-opus-4-8": (5.0, 25.0)}
+try:
+    PRICES.update({k: (float(v[0]), float(v[1])) for k, v in json.loads(os.environ.get("CONDUCTOR_PRICES", "{}")).items()})
+except Exception:
+    pass
+_USAGE_LOCK = threading.Lock()
+
+
+def record_usage(provider, model, kind, tokens_in=0, tokens_out=0, seconds=0.0, usd=None, ts=None):
+    if usd is None:
+        p = PRICES.get(model)
+        usd = (tokens_in * p[0] + tokens_out * p[1]) / 1e6 if p else None
+    row = {"ts": round(ts if ts is not None else time.time(), 3), "provider": provider, "model": model, "kind": kind,
+           "in": int(tokens_in or 0), "out": int(tokens_out or 0), "seconds": round(seconds or 0, 1), "usd": usd}
+    try:
+        with _USAGE_LOCK:
+            fd = os.open(USAGE_LOG, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            with os.fdopen(fd, "a") as f:
+                f.write(json.dumps(row) + "\n")
+    except OSError:
+        pass  # never let bookkeeping break the call it is counting
+
+
+def usage_report(now=None):
+    """{today, week, since}: per (provider, model) calls / tokens / cost for the local day so far and
+    for the last 7 days; `since` = when the ledger starts, if that is less than 7 days ago."""
+    now = now if now is not None else time.time()
+    lt = time.localtime(now)
+    day0 = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+    week0 = now - 7 * 86400
+    acc, first = {"today": {}, "week": {}}, None
+    try:
+        with open(USAGE_LOG, errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        lines = []
+    for ln in lines:
+        try:
+            r = json.loads(ln)
+            ts = float(r.get("ts") or 0)
+        except Exception:
+            continue
+        if ts > now:
+            continue
+        first = ts if first is None else min(first, ts)
+        for name, t0 in (("today", day0), ("week", week0)):
+            if ts < t0:
+                continue
+            a = acc[name].setdefault((r.get("provider"), r.get("model")), {
+                "provider": r.get("provider"), "model": r.get("model"), "calls": 0, "in": 0, "out": 0,
+                "seconds": 0.0, "usd": 0.0, "unpriced": 0})
+            a["calls"] += 1
+            a["in"] += r.get("in") or 0
+            a["out"] += r.get("out") or 0
+            a["seconds"] = round(a["seconds"] + (r.get("seconds") or 0), 1)
+            if r.get("usd") is None:
+                a["unpriced"] += 1
+            else:
+                a["usd"] = round(a["usd"] + r["usd"], 6)
+    rows = lambda d: sorted(d.values(), key=lambda a: (-a["usd"], a["provider"] or "", a["model"] or ""))
+    return {"today": rows(acc["today"]), "week": rows(acc["week"]),
+            "since": first if first is not None and first > week0 else None}
+
+
 def translate_command(description, cwd):
     """Turn a natural-language description into a single shell command via Claude."""
     key = _anthropic_key()
@@ -142,6 +216,8 @@ def translate_command(description, cwd):
                  "anthropic-version": "2023-06-01"}, method="POST")
     with urllib.request.urlopen(req, timeout=60) as r:
         data = json.loads(r.read().decode())
+    u = data.get("usage") or {}
+    record_usage("Anthropic", payload["model"], "voice to command", u.get("input_tokens") or 0, u.get("output_tokens") or 0)
     text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
     return text.strip().strip("`").strip()
 
@@ -277,6 +353,8 @@ def summarize_exchange(prompt, reply, kind="line"):
     u = data.get("usage") or {}
     print(f"[summary] {SUMMARY_MODEL} in={u.get('input_tokens')} out={u.get('output_tokens')} stop={data.get('stop_reason')}"
           + (" kind=reply" if kind == "reply" else ""), flush=True)
+    record_usage("Anthropic", SUMMARY_MODEL, "condensed reply" if kind == "reply" else "summary",
+                 u.get("input_tokens") or 0, u.get("output_tokens") or 0)
     if data.get("stop_reason") == "refusal":  # a safety decline is a normal 200 — no text to use
         return None
     # the response can start with thinking blocks: read text blocks by type, never by position
@@ -638,6 +716,8 @@ class Handler(BaseHTTPRequestHandler):
             panes = src.list_panes(claude_only=claude_only)
             views = list(_POOL.map(lambda p: pane_view(src, p), panes)) if panes else []  # captures run concurrently
             return self._json(200, {"panes": views})
+        if path == "/api/usage":   # what the paid API calls cost: today and the last 7 days, by provider and model
+            return self._json(200, usage_report())
         if path == "/api/windows":
             return self._json(200, {"windows": src.list_windows()})
         m = re.fullmatch(r"/api/panes/([^/]+)/screen", path)  # id: tmux '29' or herdr 'w3:p6'
@@ -701,8 +781,10 @@ class Handler(BaseHTTPRequestHandler):
             audio = self.rfile.read(n)
             try:
                 secs = wav_seconds(audio)
+                text = whisper_transcribe(audio, openai_key(q.get("keypath", [None])[0]))
+                record_usage("OpenAI", "whisper-1", "voice", seconds=secs, usd=secs / 60 * WHISPER_USD_PER_MIN)
                 return self._json(200, {
-                    "text": whisper_transcribe(audio, openai_key(q.get("keypath", [None])[0])),
+                    "text": text,
                     "seconds": round(secs, 1),
                     "cost": round(secs / 60 * WHISPER_USD_PER_MIN, 4),
                 })

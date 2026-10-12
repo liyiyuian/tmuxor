@@ -99,6 +99,18 @@ export async function paneCondensed(n: string): Promise<{ summary?: string | nul
   return r.json()
 }
 
+// What the backend's paid API calls cost — today and the last 7 days, per provider and model.
+// `since` (seconds) is set when the backend has been counting for less than 7 days. Null from a
+// backend that predates this.
+export interface UsageRow { provider: string; model: string; calls: number; in: number; out: number; seconds: number; usd: number; unpriced: number }
+export interface Usage { today: UsageRow[]; week: UsageRow[]; since: number | null }
+export async function getUsage(): Promise<Usage | null> {
+  const r = await fetch(`${base()}/api/usage`, { headers: authHeaders(), cache: 'no-store' })
+  if (!r.ok) return null
+  const d = await r.json()
+  return Array.isArray(d.today) && Array.isArray(d.week) ? d : null
+}
+
 export async function sendToPane(n: string, text: string, submit = true): Promise<void> {
   const r = await fetch(`${base()}/api/panes/${pid(n)}/send${qs(srcParam())}`, {
     method: 'POST',

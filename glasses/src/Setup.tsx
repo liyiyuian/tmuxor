@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense } from './config'
-import { listPanes, health } from './api'
+import { listPanes, getUsage, type Usage, type UsageRow } from './api'
 import { subscribe, getSnapshot, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged } from './store'
 
 // Decode the `tmuxor:<base64>` blob that install.sh prints into a config.
@@ -43,6 +43,23 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
     </section>
   )
 }
+// money as it reads best at these sizes: cents and up as $1.23, anything smaller with four decimals
+const money = (usd: number) => usd >= 1 ? `$${usd.toFixed(2)}` : usd >= 0.0001 ? `$${usd.toFixed(4)}` : usd > 0 ? '<$0.0001' : '$0'
+function CostTable({ title, rows }: { title: string; rows: UsageRow[] }) {
+  const total = rows.reduce((n, r) => n + r.usd, 0)
+  return (
+    <div data-testid="cost-table" style={{ padding: '10px 14px', borderBottom: `1px solid ${C.line}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 600 }}><span>{title}</span><span>{money(total)}</span></div>
+      {rows.length === 0 && <div style={{ fontSize: 12, color: C.mute, marginTop: 4 }}>No paid calls.</div>}
+      {rows.map((r) => (
+        <div key={r.provider + r.model} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13, color: C.soft, marginTop: 6 }}>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.provider} · {r.model} <span style={{ color: C.mute }}>· {r.calls} call{r.calls === 1 ? '' : 's'}</span></span>
+          <span style={{ flex: 'none' }}>{r.unpriced === r.calls ? 'price unknown' : money(r.usd)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
 const SESSIONS_SHOWN = 6  // pinned sessions sort first, so they are always among these
 // screen-sleep choices; a value set by an older build that is not one of these is shown as its own choice
 const SLEEP: [number, string][] = [[0, 'Never'], [30, '30 s'], [60, '1 min'], [300, '5 min']]
@@ -65,6 +82,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [preview, setPv] = useState(getPreview())
   const [hiddenTags, setHidden] = useState(getHiddenTags())
   const [condense, setCond] = useState(getCondense())
+  const [usage, setUsage] = useState<Usage | null>(null)
   const [allSessions, setAllSessions] = useState(false)  // the session list shows its first few until asked for the rest
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -80,6 +98,10 @@ export function Setup({ onSave }: { onSave: () => void }) {
     : live.error ? '○ Can’t reach your backend — check the URL & token'
     : `● Connected · ${live.panes.length} session${live.panes.length === 1 ? '' : 's'}`
   const statusColor = configured && !live.error ? '#16c46a' : '#ffb38a'
+
+  // API cost: asked for when the page opens and on "Refresh" — never polled.
+  const loadUsage = () => { if (getConfig().base && getConfig().token) getUsage().then(setUsage).catch(() => setUsage(null)) }
+  useEffect(loadUsage, [configured])
 
   // Test the connection before declaring success, so a wrong URL/token/down backend fails
   // HERE (on the phone) instead of dropping the user into an "offline" glasses screen.
@@ -227,6 +249,18 @@ export function Setup({ onSave }: { onSave: () => void }) {
           </div>
         </div>
       </Section>
+
+      {usage && (
+        <Section title="API cost" hint="What your backend's own API calls cost, at list prices. Not your Claude or Codex subscription.">
+          <div style={card}>
+            <CostTable title="Today" rows={usage.today} />
+            <CostTable title="Last 7 days" rows={usage.week} />
+            <button type="button" style={{ ...rowBtn, justifyContent: 'center', borderBottom: 'none', color: '#7fd9a6', fontSize: 13 }} onClick={loadUsage}>
+              {usage.since ? `Counting since ${new Date(usage.since * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ` : ''}Refresh
+            </button>
+          </div>
+        </Section>
+      )}
 
       {configured && CONNECTION}
 
