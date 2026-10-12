@@ -134,9 +134,9 @@ local files for this — it never touches a login token.
   `"statusLine": {"type": "command", "command": "python3 ~/.local/share/tmuxor/g2c_usage_hook.py"}`
   or, if you already have a status line script, add this near its top and keep using `$input`:
   `input=$(cat); printf '%s' "$input" | python3 ~/.local/share/tmuxor/g2c_usage_hook.py save`
-  With several accounts, set `G2C_USAGE_LABEL` (e.g. `P`, `W`) in each one's environment.
+  With several accounts, set `G2C_USAGE_LABEL` (e.g. `A`, `B`) in each one's environment.
 - Already keep these numbers in a file of your own? Point `CONDUCTOR_LIMITS_FILE` at a JSON file
-  shaped `{"data": {"P": {"util": 0.26, "week_util": 0.44, "reset_epoch": …, "week_reset_epoch": …}}}`.
+  shaped `{"data": {"A": {"util": 0.25, "week_util": 0.5, "reset_epoch": …, "week_reset_epoch": …}}}`.
 
 Switch the line off on the phone under **On the glasses → Plan usage**.
 

@@ -319,6 +319,20 @@ def _user_prompt(rec):
     return _clean_prompt(c)
 
 
+def _absorbed_prompt(a):
+    """The typed prompt in a `queued_command` attachment (a queued prompt the agent took up in the
+    middle of its turn), or '' for anything else — a background-task notice or a message from
+    another session travels the same way and was not typed by the user."""
+    if a.get("type") != "queued_command" or a.get("commandMode") != "prompt":
+        return ""
+    if ((a.get("origin") or {}).get("kind") or "human") != "human":
+        return ""
+    c = a.get("prompt")
+    if isinstance(c, list):                  # text + images: keep the text
+        c = "\n".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+    return _clean_prompt(c) if isinstance(c, str) else ""
+
+
 _convo_cache = {}  # jsonl_path -> ((mtime_ns, size), turns, queued) — skip re-read+re-parse when unchanged
 
 
@@ -334,7 +348,11 @@ def _clean_prompt(c):
 def _read_claude(jsonl_path):
     """(turns, queued) from a Claude Code transcript. `queued` = prompts typed while the agent was
     busy and not yet taken up: Claude Code logs them as queue-operation records (enqueue, then a
-    dequeue/remove when delivered) and only writes the user record once the prompt is delivered."""
+    dequeue/remove when delivered). A prompt taken up at the end of the turn (dequeue) is then
+    written as a user record; one handed to the agent in the middle of its turn (remove, reason
+    absorbed_mid_turn) is written as a `queued_command` ATTACHMENT instead — also a typed prompt,
+    so it is a turn too (seen 2026-10-12: 45 of 73 queued prompts in one session arrived that way
+    and were missing from the conversation)."""
     turns, queue = [], []
     for line in Path(jsonl_path).read_text(errors="replace").splitlines():
         try:
@@ -348,6 +366,10 @@ def _read_claude(jsonl_path):
                 turns.append({"role": "assistant", "text": _strip_markdown(text)})
         elif t == "user":
             text = _user_prompt(rec)
+            if text:
+                turns.append({"role": "user", "text": _strip_markdown(text)})
+        elif t == "attachment":
+            text = _absorbed_prompt(rec.get("attachment") or {})
             if text:
                 turns.append({"role": "user", "text": _strip_markdown(text)})
         elif t == "queue-operation":
