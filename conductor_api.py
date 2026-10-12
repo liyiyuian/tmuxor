@@ -585,6 +585,35 @@ def _last_exchange(turns):
     return out
 
 
+def _window_start(turns, frm, last):
+    """Which turn a /conversation answer starts at. A long session's whole conversation is
+    hundreds of KB (median 100 KB, up to 850 KB across 33 live sessions, 2026-10-12) and the
+    phone lays every line of it out again on each change, so the app asks for the recent part:
+    ?turns=N = the last N turns, moved forward to the next prompt where one is near so the window
+    opens on a question; ?from=K = everything from turn K (the app keeps K while a session is
+    open, so the window only grows at its end, and lowers it to load earlier messages). No
+    parameter, or a K past the end (the transcript was replaced) = the rules above with what
+    is left: everything, or the last N."""
+    n = len(turns)
+    try:
+        k = int(frm)
+        if 0 <= k <= n:
+            return k
+    except (TypeError, ValueError):
+        pass
+    try:
+        want = int(last)
+    except (TypeError, ValueError):
+        return 0
+    if want <= 0 or want >= n:
+        return 0
+    cut = n - want
+    for i in range(cut, min(cut + 6, n)):
+        if turns[i]["role"] == "user":
+            return i
+    return cut
+
+
 def _summarize_job(pid, jsonl, etag, kind="line", model=None, limit=LINE_CHARS):
     global _sum_retry_at
     model = model or SUMMARY_MODEL
@@ -925,12 +954,17 @@ class Handler(BaseHTTPRequestHandler):
             if etag and q.get("etag", [""])[0] == etag:
                 return self._json(200, {"id": p["pane_id"], "notModified": True, "etag": etag})
             turns = tc.read_conversation(jsonl) if jsonl else []
+            start, prompts = 0, sum(1 for t in turns if t["role"] == "user")
             if q.get("tail", ["0"])[0] in ("1", "true"):
                 turns = _last_exchange(turns)
+            else:
+                start = _window_start(turns, q.get("from", [None])[0], q.get("turns", [None])[0])
+                turns = turns[start:]
             # prompts typed while the agent is busy sit in its queue until it takes them up; only a
             # busy session can have any (first line of each, a few at most)
             queued = [t.split("\n", 1)[0][:200] for t in tc.queued_prompts(jsonl)[:8]] if jsonl and working else []
-            return self._json(200, {"id": p["pane_id"], "turns": turns, "working": working, "etag": etag, "queued": queued})
+            return self._json(200, {"id": p["pane_id"], "turns": turns, "working": working, "etag": etag, "queued": queued,
+                                    "start": start, "prompts": prompts})
         m = re.fullmatch(r"/api/panes/([^/]+)/summary", path)
         if m:
             p = find_pane(src, unquote(m.group(1)))

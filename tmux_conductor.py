@@ -17,6 +17,7 @@ Usage:
 Safety: never sends to the conductor's own pane ($TMUX_PANE); every send is
 appended to an audit log (~/.tmux-conductor-audit.log, override TMUX_CONDUCTOR_AUDIT).
 """
+import threading
 import json
 import os
 import re
@@ -333,7 +334,6 @@ def _absorbed_prompt(a):
     return _clean_prompt(c) if isinstance(c, str) else ""
 
 
-_convo_cache = {}  # jsonl_path -> ((mtime_ns, size), turns, queued) — skip re-read+re-parse when unchanged
 
 
 def _clean_prompt(c):
@@ -345,43 +345,41 @@ def _clean_prompt(c):
     return re.sub(r"</?[a-z-]+>", "", c).strip()
 
 
-def _read_claude(jsonl_path):
-    """(turns, queued) from a Claude Code transcript. `queued` = prompts typed while the agent was
-    busy and not yet taken up: Claude Code logs them as queue-operation records (enqueue, then a
-    dequeue/remove when delivered). A prompt taken up at the end of the turn (dequeue) is then
-    written as a user record; one handed to the agent in the middle of its turn (remove, reason
-    absorbed_mid_turn) is written as a `queued_command` ATTACHMENT instead — also a typed prompt,
-    so it is a turn too (seen 2026-10-12: 45 of 73 queued prompts in one session arrived that way
-    and were missing from the conversation)."""
-    turns, queue = [], []
-    for line in Path(jsonl_path).read_text(errors="replace").splitlines():
-        try:
-            rec = json.loads(line)
-        except Exception:
-            continue
-        t = rec.get("type")
-        if t == "assistant":
-            text = _assistant_prose(rec.get("message", {}).get("content", ""))
-            if text:
-                turns.append({"role": "assistant", "text": _strip_markdown(text)})
-        elif t == "user":
-            text = _user_prompt(rec)
-            if text:
-                turns.append({"role": "user", "text": _strip_markdown(text)})
-        elif t == "attachment":
-            text = _absorbed_prompt(rec.get("attachment") or {})
-            if text:
-                turns.append({"role": "user", "text": _strip_markdown(text)})
-        elif t == "queue-operation":
-            op, c = rec.get("operation"), rec.get("content")
-            if op == "enqueue":
-                queue.append(c if isinstance(c, str) else "")
-            elif op == "popAll":
-                queue.clear()
-            elif op in ("dequeue", "remove") and queue:
-                # one record takes one item out; a remove names it (not always verbatim)
-                queue.pop(queue.index(c) if op == "remove" and c in queue else 0)
-    return turns, [q for q in (_clean_prompt(x) for x in queue) if q]
+def _claude_line(raw, turns, queue):
+    """Feed one line of a Claude Code transcript: append any conversation turn to `turns` and
+    keep `queue` (prompts typed while the agent was busy and not yet taken up) current. Claude
+    Code logs the queue as queue-operation records (enqueue, then a dequeue/remove when
+    delivered). A prompt taken up at the end of the turn (dequeue) is then written as a user
+    record; one handed to the agent in the middle of its turn (remove, reason absorbed_mid_turn)
+    is written as a `queued_command` ATTACHMENT instead — also a typed prompt, so it is a turn too
+    (seen 2026-10-12: 45 of 73 queued prompts in one session arrived that way and were missing
+    from the conversation)."""
+    try:
+        rec = json.loads(raw)
+    except Exception:
+        return
+    t = rec.get("type")
+    if t == "assistant":
+        text = _assistant_prose(rec.get("message", {}).get("content", ""))
+        if text:
+            turns.append({"role": "assistant", "text": _strip_markdown(text)})
+    elif t == "user":
+        text = _user_prompt(rec)
+        if text:
+            turns.append({"role": "user", "text": _strip_markdown(text)})
+    elif t == "attachment":
+        text = _absorbed_prompt(rec.get("attachment") or {})
+        if text:
+            turns.append({"role": "user", "text": _strip_markdown(text)})
+    elif t == "queue-operation":
+        op, c = rec.get("operation"), rec.get("content")
+        if op == "enqueue":
+            queue.append(c if isinstance(c, str) else "")
+        elif op == "popAll":
+            queue.clear()
+        elif op in ("dequeue", "remove") and queue:
+            # one record takes one item out; a remove names it (not always verbatim)
+            queue.pop(queue.index(c) if op == "remove" and c in queue else 0)
 
 
 CODEX_TAIL_BYTES = 16 * 1024 * 1024  # a Codex transcript can be hundreds of MB; the glasses need the recent part
@@ -391,59 +389,84 @@ def is_codex_transcript(jsonl_path):
     return os.path.basename(str(jsonl_path)).startswith("rollout-")
 
 
-def _read_codex(jsonl_path):
-    """Turns from a Codex CLI transcript (rollout-*.jsonl): response_item/message records with
-    role user (typed prompts — the harness's own <tagged> context blocks are skipped) and role
-    assistant (its commentary and final answers). Reasoning, tool calls and their output are not
-    conversation. Reads only the END of the file (CODEX_TAIL_BYTES)."""
-    turns = []
-    with open(jsonl_path, "rb") as f:
-        f.seek(0, os.SEEK_END)
-        size = f.tell()
-        f.seek(max(0, size - CODEX_TAIL_BYTES))
-        data = f.read()
-    lines = data.split(b"\n")
-    if size > CODEX_TAIL_BYTES:
-        lines = lines[1:]  # the window starts mid-record
-    for raw in lines:
-        if b'"message"' not in raw or b'"response_item"' not in raw:
-            continue  # most of the file is tool output / state snapshots: skip without parsing
-        try:
-            rec = json.loads(raw)
-        except Exception:
-            continue
-        pl = rec.get("payload")
-        if rec.get("type") != "response_item" or not isinstance(pl, dict) or pl.get("type") != "message":
-            continue
-        role = pl.get("role")
-        if role not in ("user", "assistant"):
-            continue
-        text = "\n".join(c.get("text", "") for c in pl.get("content") or []
-                         if isinstance(c, dict) and c.get("type") in ("input_text", "output_text", "text")).strip()
-        if not text or (role == "user" and text.startswith("<")):
-            continue  # empty, or a harness block (<environment_context>, <user_instructions>, …)
-        turns.append({"role": role, "text": _strip_markdown(text)})
-    return turns
+def _codex_line(raw, turns):
+    """Feed one line of a Codex CLI transcript (rollout-*.jsonl): response_item/message records
+    with role user (typed prompts — the harness's own <tagged> context blocks are skipped) and
+    role assistant (its commentary and final answers). Reasoning, tool calls and their output are
+    not conversation."""
+    if b'"message"' not in raw or b'"response_item"' not in raw:
+        return  # most of the file is tool output / state snapshots: skip without parsing
+    try:
+        rec = json.loads(raw)
+    except Exception:
+        return
+    pl = rec.get("payload")
+    if rec.get("type") != "response_item" or not isinstance(pl, dict) or pl.get("type") != "message":
+        return
+    role = pl.get("role")
+    if role not in ("user", "assistant"):
+        return
+    text = "\n".join(c.get("text", "") for c in pl.get("content") or []
+                     if isinstance(c, dict) and c.get("type") in ("input_text", "output_text", "text")).strip()
+    if not text or (role == "user" and text.startswith("<")):
+        return  # empty, or a harness block (<environment_context>, <user_instructions>, …)
+    turns.append({"role": role, "text": _strip_markdown(text)})
+
+
+# A transcript only grows (JSONL, appended to), and a busy session appends to it constantly. Reading
+# and parsing the whole file again on every change cost 0.3-2 s of CPU per poll on the 25-160 MB
+# transcripts of long sessions (measured 2026-10-12) — every 2.5 s while such a session was open on
+# the glasses. So remember, per file, how far it has been read and what that produced, and on a
+# change read only the new bytes. A file that shrank, was replaced, or no longer continues where the
+# last read stopped is read afresh. A Codex transcript is first read from its last CODEX_TAIL_BYTES.
+_convo_state = {}                 # path -> {key, ino, head, offset, turns, queue, queued, codex}
+_convo_locks = {}                 # path -> lock: two requests for one transcript must not both append
+_convo_guard = threading.Lock()
 
 
 def _parse_conversation(jsonl_path):
-    """(turns, queued), memoized by (mtime_ns, size) so a steady 2.5s poll on an unchanged
-    transcript costs one stat() instead of a full read + json.loads + ~15 regex passes/turn."""
-    try:
-        st = Path(jsonl_path).stat()
+    """(turns, queued) for a transcript. Unchanged file: one stat(). Grown file: only its new bytes
+    are read and parsed. The lists returned are never modified afterwards (a change builds new ones)."""
+    path = str(jsonl_path)
+    with _convo_guard:
+        lock = _convo_locks.setdefault(path, threading.Lock())
+    with lock:
+        st = os.stat(path)
         key = (st.st_mtime_ns, st.st_size)
-    except OSError:
-        key = None
-    if key is not None:
-        hit = _convo_cache.get(jsonl_path)
-        if hit and hit[0] == key:
-            return hit[1], hit[2]
-    turns, queued = (_read_codex(jsonl_path), []) if is_codex_transcript(jsonl_path) else _read_claude(jsonl_path)
-    if key is not None:
-        _convo_cache[jsonl_path] = (key, turns, queued)
-        if len(_convo_cache) > 64:  # bound memory: transcripts rotate over the service's lifetime
-            _convo_cache.pop(next(iter(_convo_cache)))
-    return turns, queued
+        s = _convo_state.get(path)
+        if s and s["key"] == key:
+            return s["turns"], s["queued"]
+        with open(path, "rb") as f:
+            head = f.read(64)
+            fresh = not s or s["ino"] != st.st_ino or st.st_size < s["offset"] or head[:len(s["head"])] != s["head"]
+            if not fresh and s["offset"]:
+                f.seek(s["offset"] - 1)
+                fresh = f.read(1) != b"\n"        # the last read ended on a line break; if that is gone, so is our place
+            if fresh:
+                codex = is_codex_transcript(path)
+                start = max(0, st.st_size - CODEX_TAIL_BYTES) if codex else 0
+                s = {"ino": st.st_ino, "head": head, "offset": start, "turns": [], "queue": [], "codex": codex, "midline": start > 0}
+            f.seek(s["offset"])
+            data = f.read()
+        end = data.rfind(b"\n") + 1               # whole lines only: a record still being written waits for the next read
+        lines = data[:end].split(b"\n")
+        if s["midline"] and end:                  # a tail window starts in the middle of a record
+            lines, s["midline"] = lines[1:], False
+        turns, queue = [], list(s["queue"])
+        for raw in lines:
+            if raw:
+                _codex_line(raw, turns) if s["codex"] else _claude_line(raw, turns, queue)
+        s.update(key=key, offset=s["offset"] + end, queue=queue,
+                 turns=(s["turns"] + turns) if turns else s["turns"],
+                 queued=[q for q in (_clean_prompt(x) for x in queue) if q])
+        _convo_state.pop(path, None)
+        _convo_state[path] = s                    # most recently used last
+        while len(_convo_state) > 64:             # bound memory: transcripts come and go over the service's lifetime
+            old = next(iter(_convo_state))
+            _convo_state.pop(old)
+            with _convo_guard:
+                _convo_locks.pop(old, None)
+        return s["turns"], s["queued"]
 
 
 def read_conversation(jsonl_path):
