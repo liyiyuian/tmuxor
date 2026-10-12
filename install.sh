@@ -43,7 +43,7 @@ command -v tailscale >/dev/null && ok "tailscale" || die "tailscale not found. I
 
 # 2) download backend --------------------------------------------------------
 mkdir -p "$INSTALL_DIR"
-for f in conductor_api.py tmux_conductor.py; do
+for f in conductor_api.py tmux_conductor.py sources.py; do
   if [ -n "${TMUXOR_SRC:-}" ]; then
     cp "$TMUXOR_SRC/$f" "$INSTALL_DIR/$f"
   else
