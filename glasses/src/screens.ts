@@ -7,7 +7,7 @@ import { truncateGlassText, getTextWidth } from 'even-toolkit/pretext'
 import { createGlassScreenRouter, type GlassScreen } from 'even-toolkit/glass-screen-router'
 import { listRows, listRow, PREVIEW_PX, NO_PREVIEW, AI_MARK, type AppState } from './store'
 import type { Pane } from './api'
-import { isConfigured, getPreview, getUsageLine, getCondense } from './config'
+import { isConfigured, getPreview, getUsageLine } from './config'
 
 export interface Ctx {
   exitApp: () => void
@@ -309,7 +309,7 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
     const wk = s.working ? ' »' : ''  // » = working, as in the list (⋯ is not in the G2 font, it drew blank)
     // the tap hint, and — exactly when a press and hold would do something (store toggleShortView) —
     // what it switches to
-    const hold = s.activeIsClaude && s.canCondense && getCondense() && !s.working ? (s.shortView ? ' hold=full' : ' hold=short') : ''
+    const hold = s.holdTo && !s.working ? ` hold=${s.holdTo}` : ''
     const talk = (s.voiceOn ? 'tap=talk' : 'tap=type') + hold
     const pos = s.lines.length > slots ? ` ${Math.min(top + slots, s.lines.length)}/${s.lines.length}` : ''
     // a long name gives way to the hints (they are the only place the glasses say what a gesture
