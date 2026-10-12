@@ -27,14 +27,31 @@ project memory; this file is the short "what changed" for each build.
   (all on by default); untick one and its sessions are left off the glasses.
 - **Optional condensed replies (off by default).** A second switch in the phone's settings,
   "Condense the latest reply with Claude Haiku": opening a session then shows its latest reply as
-  about one screen (marked `~`), leading with anything it is waiting on you for and keeping the
-  exact names, numbers and commands. While it is being written the view says "~ condensing…" above
+  about one screen (marked `＊`), leading with anything it is waiting on you for and keeping the
+  exact names, numbers and commands. While it is being written the view says "＊ condensing…" above
   the full reply. Earlier replies, short replies and approval prompts are never condensed; switch it
   off to read the full reply. Same rules as the preview summaries: your own Anthropic key on your
   backend, once per reply, never while the session is working. Needs the updated backend.
 - **Fix: summaries garbled names.** Cleaning the model's text removed every `_`, `*`, `#` and `>`,
   so `rotate_token()` became `rotatetoken()` and `a -> b` became `a - b`. Only markdown marks are
   removed now.
+- **Better instructions for the model.** Summaries and condensed replies now give the answer or
+  outcome itself instead of describing it, start with "Needs you:" only when the session really is
+  waiting on you, list choices only when the reply offers them (they are never invented), and are
+  cut at a word, not mid-word, when they run long.
+- **A new mark for model-written text.** It starts with `＊` (the closest the glasses font has to
+  Claude's spark) instead of `~`.
+- **Pinned sessions** show their tag in CAPITALS on the glasses instead of a ★ in front (the glasses
+  font has no bold); on the phone a pinned row is bold.
+- **Settings reordered.** What you use most is on top (sessions to pin, workspaces, switches); the
+  connection form folds away once you are connected. Every switch applies at once.
+- **Fix: a session attached to a background session showed the wrong conversation.** When a pane's
+  Claude was a front end for a background session running elsewhere, the glasses read a different
+  session under that pane and never updated. The backend now follows Herdr's session id, or the
+  pane's title, to the session actually on screen.
+- **A page the Even app has let go of goes quiet.** After the app is closed or reopened the Even
+  app keeps the old page alive; that page now stops polling instead of failing over and over, and
+  the event is no longer shown as "Last app error".
 - **Queued prompts.** A prompt you send while the agent is busy waits in its queue; the reading
   view now shows one line per waiting prompt ("◇ queued: …") until the agent takes it up.
 - **The preview says when more is coming.** Its rule shows "loading…", "updating…" or

@@ -30,6 +30,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [idleSec, setIdleSec] = useState(String(getIdleSleepSec()))
   const [wakeChange, setWakeChange] = useState(getWakeOnChange())
   const [aiSummary, setAi] = useState(getAiSummary())
+  const [showCfg, setShowCfg] = useState(!c.base)  // the connection form is open until you're set up
   const [preview, setPv] = useState(getPreview())
   const [hiddenTags, setHidden] = useState(getHiddenTags())
   const [condense, setCond] = useState(getCondense())
@@ -60,6 +61,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
     setAiSummary(aiSummary)
     try {
       await listPanes()
+      setShowCfg(false)  // connected -> fold the connection form; the everyday settings stay in view
       onSave()
     } catch (e) {
       const msg = String((e as Error)?.message || e)
@@ -87,32 +89,11 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const rowText: CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
   const pinBtn: CSSProperties = { padding: '6px 12px', fontSize: 20, lineHeight: 1, border: 'none', background: 'transparent' }
 
-  return (
-    <div style={wrap}>
-      <h2 style={{ margin: 0, fontSize: 20 }}>G2C</h2>
-      <p style={{ color: statusColor, fontSize: 13, margin: '8px 0 0', fontWeight: 600 }}>{status}</p>
-
-      {lastErr && (
-        <div style={{ background: '#241010', border: '1px solid #6e2a2a', borderRadius: 8, padding: '8px 10px', margin: '10px 0 0' }}>
-          <div style={{ fontWeight: 600, fontSize: 12, color: '#ff9b9b' }}>⚠ Last app error — please copy this to your developer</div>
-          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '6px 0 0', fontFamily: 'monospace', fontSize: 10, color: '#ffc9c9', maxHeight: 140, overflow: 'auto' }}>{lastErr}</pre>
-          <button type="button" style={{ marginTop: 6, padding: '6px 10px', fontSize: 12, borderRadius: 8, border: '1px solid #6e2a2a', background: 'transparent', color: '#ff9b9b' }}
-            onClick={() => { try { localStorage.removeItem('conductor.lastError') } catch { /* */ } setLastErr('') }}>Dismiss</button>
-        </div>
-      )}
-
-      <details style={{ marginTop: 14 }}>
-        <summary style={summary}>How to use the glasses</summary>
-        <ul style={{ margin: 0, paddingLeft: 18, color: '#b9d8c6', fontSize: 13, lineHeight: 1.6 }}>
-          <li><b>Session list</b> — swipe to move, tap to open, double-tap to exit. Sessions are in the same order as on your computer (herdr workspaces, then tabs); ★ sessions stay on top. ○ idle, » working, ● finished since you last opened it, ! needs you (Codex sessions use ◇ and ◆). The right side previews the highlighted session. “＋ new session” is the last row (swipe up from the top).</li>
-          <li><b>In a session</b> — swipe to scroll, tap to reply (speak, or type here), double-tap to go back.</li>
-          <li><b>When it asks you something</b> — read it, tap, swipe to your answer, tap to choose.</li>
-          <li><b>Pin / unpin</b> — tap ★ next to a session in the settings below. Or on the glasses: highlight it in the session list, tap then press-and-hold to open the menu, and choose “Pin / unpin session”.</li>
-        </ul>
-      </details>
-
-      <div>
-        <h3 style={{ ...summary, margin: 0, cursor: 'default' }}>Connection &amp; settings</h3>
+  const CONNECTION = (
+    <>
+      {/* set once: open until the first successful connection, folded afterwards */}
+      <details open={showCfg} onToggle={(e) => setShowCfg(e.currentTarget.open)} style={{ marginTop: 14 }}>
+        <summary style={summary}>Connection</summary>
         <p style={{ color: '#88a895', fontSize: 13, lineHeight: 1.4, margin: 0 }}>
           Run <code>install.sh</code> on your computer, then paste the config code it prints. Everything stays on this phone.
         </p>
@@ -133,12 +114,44 @@ export function Setup({ onSave }: { onSave: () => void }) {
         <label style={label} htmlFor="cfg-keypath">OpenAI key file (optional) — for voice. Auto-found in env/~/.env; set a path only if elsewhere</label>
         <input id="cfg-keypath" style={input} value={keyPath} onChange={(e) => { setKeyPath(e.target.value); setErr('') }} placeholder="e.g. ~/.config/openai/key" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
 
-        <label style={label} htmlFor="cfg-idle">Glasses screen on-time (seconds before it sleeps; 0 = always on)</label>
-        <input id="cfg-idle" type="number" inputMode="numeric" min="0" style={input} value={idleSec} onChange={(e) => { setIdleSec(e.target.value); setErr('') }} placeholder="0" />
-        <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input type="checkbox" checked={wakeChange} onChange={(e) => setWakeChange(e.target.checked)} />
-          Wake the glasses when a session finishes or needs input
-        </label>
+        {err && <p style={{ color: '#ff8a8a', fontSize: 13 }}>{err}</p>}
+        <button style={btn} onClick={save} disabled={busy}>{busy ? 'Connecting…' : 'Save & connect'}</button>
+      </details>
+    </>
+  )
+
+  return (
+    <div style={wrap}>
+      <h2 style={{ margin: 0, fontSize: 20 }}>G2C</h2>
+      <p style={{ color: statusColor, fontSize: 13, margin: '8px 0 0', fontWeight: 600 }}>{status}</p>
+
+      {lastErr && (
+        <div style={{ background: '#241010', border: '1px solid #6e2a2a', borderRadius: 8, padding: '8px 10px', margin: '10px 0 0' }}>
+          <div style={{ fontWeight: 600, fontSize: 12, color: '#ff9b9b' }}>⚠ Last app error — please copy this to your developer</div>
+          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '6px 0 0', fontFamily: 'monospace', fontSize: 10, color: '#ffc9c9', maxHeight: 140, overflow: 'auto' }}>{lastErr}</pre>
+          <button type="button" style={{ marginTop: 6, padding: '6px 10px', fontSize: 12, borderRadius: 8, border: '1px solid #6e2a2a', background: 'transparent', color: '#ff9b9b' }}
+            onClick={() => { try { localStorage.removeItem('conductor.lastError') } catch { /* */ } setLastErr('') }}>Dismiss</button>
+        </div>
+      )}
+
+
+      {!configured && CONNECTION}
+      {/* everyday settings, most used first; each applies at once */}
+      <div>
+        {configured && !live.error && live.panes.length > 0 && (
+          <>
+          <label style={label}>Sessions — tap ★ to keep one at the top of your glasses</label>
+          <div style={{ maxHeight: 290, overflowY: 'auto', border: '1px solid #1f6e45', borderRadius: 10, background: '#0f1712' }}>
+            {live.panes.map((p) => (
+              <div key={p.n} style={row}>
+                <span style={{ ...rowText, fontWeight: p.pinned ? 700 : undefined }}><b>{p.tag}</b> {p.label} <span style={{ color: '#6f8a7b' }}>· {p.done ? 'done' : STATUS[p.status] || p.status}</span></span>
+                <button type="button" aria-label={p.pinned ? 'Unpin' : 'Pin'} style={{ ...pinBtn, color: p.pinned ? '#16c46a' : '#5f7a6b' }} onClick={() => togglePin(p.n)}>{p.pinned ? '★' : '☆'}</button>
+              </div>
+            ))}
+          </div>
+          </>
+        )}
+
 
         {live.tags.length > 1 && (
           <>
@@ -158,21 +171,6 @@ export function Setup({ onSave }: { onSave: () => void }) {
           </>
         )}
 
-        {configured && !live.error && live.panes.length > 0 && (
-          <>
-          <label style={label}>Sessions — tap ★ to keep one at the top of your glasses</label>
-          <div style={{ maxHeight: 290, overflowY: 'auto', border: '1px solid #1f6e45', borderRadius: 10, background: '#0f1712' }}>
-            {live.panes.map((p) => (
-              <div key={p.n} style={row}>
-                <span style={rowText}><b>{p.tag}</b> {p.label} <span style={{ color: '#6f8a7b' }}>· {p.done ? 'done' : STATUS[p.status] || p.status}</span></span>
-                <button type="button" aria-label={p.pinned ? 'Unpin' : 'Pin'} style={{ ...pinBtn, color: p.pinned ? '#16c46a' : '#5f7a6b' }} onClick={() => togglePin(p.n)}>{p.pinned ? '★' : '☆'}</button>
-              </div>
-            ))}
-          </div>
-          </>
-        )}
-
-
         <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* applies at once, like the summary switch below */}
           <input type="checkbox" checked={preview} onChange={(e) => { setPv(e.target.checked); setPreview(e.target.checked); previewSettingChanged() }} />
@@ -188,7 +186,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
             </label>
             <p style={{ color: '#6f8a7b', fontSize: 12, margin: '2px 0 0', lineHeight: 1.4 }}>
               Off by default. When on, your backend sends the highlighted session’s latest request and reply to Anthropic and
-              the preview shows a one-line summary (marked ~) instead of the raw text. Each summary is a small request billed to your key.
+              the preview shows a one-line summary (marked ＊) instead of the raw text. Each summary is a small request billed to your key.
             </p>
           </>
         )}
@@ -200,16 +198,31 @@ export function Setup({ onSave }: { onSave: () => void }) {
               Condense the latest reply with Claude Haiku (uses your Anthropic API key)
             </label>
             <p style={{ color: '#6f8a7b', fontSize: 12, margin: '2px 0 0', lineHeight: 1.4 }}>
-              Off by default. When on, opening a session shows its latest reply as about one screen (marked ~) instead of the
+              Off by default. When on, opening a session shows its latest reply as about one screen (marked ＊) instead of the
               full text; earlier replies and anything it asks you to approve stay as they are. Your backend sends that request and
               reply to Anthropic, once per reply. Switch it off here to read the full reply.
             </p>
           </>
         )}
 
-        {err && <p style={{ color: '#ff8a8a', fontSize: 13 }}>{err}</p>}
-        <button style={btn} onClick={save} disabled={busy}>{busy ? 'Connecting…' : 'Save & connect'}</button>
+        <label style={label} htmlFor="cfg-idle">Glasses screen on-time (seconds before it sleeps; 0 = always on)</label>
+        <input id="cfg-idle" type="number" inputMode="numeric" min="0" style={input} value={idleSec} onChange={(e) => { setIdleSec(e.target.value); setIdleSleepSec(Number(e.target.value) || 0) }} placeholder="0" />
+        <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" checked={wakeChange} onChange={(e) => { setWakeChange(e.target.checked); setWakeOnChange(e.target.checked) }} />
+          Wake the glasses when a session finishes or needs input
+        </label>
+
       </div>
+      {configured && CONNECTION}
+      <details style={{ marginTop: 14 }}>
+        <summary style={summary}>How to use the glasses</summary>
+        <ul style={{ margin: 0, paddingLeft: 18, color: '#b9d8c6', fontSize: 13, lineHeight: 1.6 }}>
+          <li><b>Session list</b> — swipe to move, tap to open, double-tap to exit. Sessions are in the same order as on your computer (herdr workspaces, then tabs); pinned sessions stay on top, their tag in CAPITALS. ○ idle, » working, ● finished since you last opened it, ! needs you (Codex sessions use ◇ and ◆). The right side previews the highlighted session. “＋ new session” is the last row (swipe up from the top).</li>
+          <li><b>In a session</b> — swipe to scroll, tap to reply (speak, or type here), double-tap to go back.</li>
+          <li><b>When it asks you something</b> — read it, tap, swipe to your answer, tap to choose.</li>
+          <li><b>Pin / unpin</b> — tap ★ next to a session above. Or on the glasses: highlight it in the session list, tap then press-and-hold to open the menu, and choose “Pin / unpin session”.</li>
+        </ul>
+      </details>
       {/* which build this is — the version number is held between submissions, so it can't say */}
       <p style={{ color: '#6f8a7b', fontSize: 11, margin: '18px 0 0', textAlign: 'center' }}>G2C {__APP_VERSION__} · build {__BUILD__}</p>
     </div>

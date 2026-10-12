@@ -85,7 +85,29 @@ const maxScroll = (n: number, vis: number = SLOTS) => Math.max(0, n - vis)
 // lastActivity + swallows the waking gesture) or, if enabled, when a session changes state. ---
 let lastActivity = Date.now()
 let prevStatus = new Map<string, string>()
-export function noteActivity() { lastActivity = Date.now(); if (state.asleep) set({ asleep: false }) }
+export function noteActivity() { lastActivity = Date.now(); hostBridgeBack(); if (state.asleep) set({ asleep: false }) }
+
+// --- the host let go of this page ---
+// When the plugin is closed or opened again, the Even app keeps the old page alive but removes its
+// link to the host (seen 2026-10-09..12: up to three such pages at once). The page can no longer
+// reach the glasses, yet its timers keep polling the backend — and every request makes the Even
+// app's own page hooks fail. So a page in that state goes quiet: no polls, no streams, no previews.
+// A gesture from the glasses or a touch on the phone can only reach a page that is still attached,
+// so either one wakes it up again.
+let hostGone = false
+export function hostBridgeLost() {
+  if (hostGone) return
+  hostGone = true
+  closeStream(); stopAnswers()
+  if (previewTimer) clearTimeout(previewTimer)
+  previewAbort?.abort()
+}
+export function hostBridgeBack() {
+  if (!hostGone) return
+  hostGone = false
+  if (state.activePaneN) openPane(state.activePaneN, state.activeLabel, state.activeIsClaude, state.activeCwd)  // restart its stream + poll
+  else refresh()
+}
 export function idleTick() {
   const sec = getIdleSleepSec()
   // never sleep mid-input: only the passive view/list state (phase 'view') is sleepable; while
@@ -126,6 +148,9 @@ function withSel(panes: Pane[]): Partial<AppState> {
 // Shown from a per-session cache, then re-checked (cheap: etag) — once the swipes settle, and on
 // every list poll. It asks the conversation endpoint for just the tail (`?tail=1`); a backend that
 // predates that returns the whole conversation, which still works.
+// Text written by the model (a preview summary, a condensed reply) starts with this mark. It is the
+// closest thing to Claude's spark the glasses font can draw: ✻ ✳ ✽ and their relatives are all missing.
+export const AI_MARK = '＊'
 export const PREVIEW_PX = 360  // text width of the preview column (screens.ts listPreview / AppGlasses columns: 384 wide)
 const PREVIEW_ROWS = 6  // content lines under the panel's title + rule (screens.ts listPreview)
 // Two different "nothing": NO_PREVIEW = the highlight is moving, draw no panel at all (so a swipe
@@ -170,7 +195,7 @@ let previewAbort: AbortController | null = null
 // the phone's "preview" switch changed: redraw the list (rows widen/narrow) and the panel now
 export function previewSettingChanged() { set({ preview: NO_PREVIEW, previewBusy: '' }); showPreview(true) }
 function showPreview(moved = false) {
-  if (!getPreview()) return  // turned off on the phone: no panel, no downloads, no summaries
+  if (!getPreview() || hostGone) return  // turned off on the phone, or this page is detached: no panel, no downloads, no summaries
   const now = Date.now()
   if (moved) previewMovedAt = now
   else if (now - previewMovedAt < SETTLE_MS) return  // a swipe's own timer is pending — don't pre-empt it
@@ -188,7 +213,7 @@ function showPreview(moved = false) {
       if (state.listSel === n && (state.preview !== lines || state.previewBusy !== busy)) set({ preview: lines, previewBusy: busy })
     }
     // Opt-in AI summary (the user's own Anthropic key, on their backend): replaces the reply tail
-    // with one status line, marked ~. Asked once per transcript state, never while the session
+    // with one status line, marked ＊. Asked once per transcript state, never while the session
     // is still working, and only of a backend that says it can (so an older one gets no request).
     const wantSummary = () => !!c && !!c.etag && !c.working && c.sumFor !== c.etag && getAiSummary() && state.canSummarize && Date.now() - lastActivity <= SUMMARY_IDLE_MS
     // only while the list is on screen, and only for a session that is on it (a request for a pane
@@ -218,7 +243,7 @@ function showPreview(moved = false) {
         return
       }
       c.sumFor = c.etag  // settled for this transcript, with or without a summary
-      if (s.summary) c.lines = [...c.head, ...wrapPx('~ ' + s.summary, '', PREVIEW_PX).slice(0, PREVIEW_ROWS - c.head.length)]
+      if (s.summary) c.lines = [...c.head, ...wrapPx(AI_MARK + ' ' + s.summary, '', PREVIEW_PX).slice(0, PREVIEW_ROWS - c.head.length)]
       show()
     } catch {
       // offline, or the request failed: what is shown stays, without a promise of more. (Superseded
@@ -279,6 +304,7 @@ export async function refresh() {
   // the fetch would go to a RELATIVE /api/panes (the app's own origin) and 404 — which the Even Hub
   // review harness flags as a 4xx. Stay idle until configured (the phone shows Setup meanwhile).
   if (!isConfigured()) { if (state.loading || state.error) set({ loading: false, error: null }); return }
+  if (hostGone) return  // detached from the host (see hostBridgeLost): stay quiet
   const gen = fleetGen
   try {
     const raw = await listPanes(true)
@@ -535,9 +561,9 @@ function renderTurns(turns: Turn[], queued: string[] = [], condensed: string | n
       t.text.split('\n').forEach((l, i) => add(i === 0 ? '▶ ' + l : (l.trim() ? '  ' + l : l)))
       add('')                                         // gap before the answer
     } else if (ti > lastUser && condensed) {
-      if (!noted) { noted = true; condensed.split('\n').forEach((l, i) => add(i === 0 ? '~ ' + l : l)) }
+      if (!noted) { noted = true; condensed.split('\n').forEach((l, i) => add(i === 0 ? AI_MARK + ' ' + l : l)) }
     } else {
-      if (ti > lastUser && condensing && !noted) { noted = true; add('~ condensing…'); add('') }
+      if (ti > lastUser && condensing && !noted) { noted = true; add(AI_MARK + ' condensing…'); add('') }
       else if (ti > 0 && turns[ti - 1].role === 'assistant') add('') // gap between separate replies
       t.text.split('\n').forEach(add)                 // paragraph blanks already present
     }

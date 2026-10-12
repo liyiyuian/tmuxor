@@ -5,7 +5,7 @@ import { buildScrollableList } from 'even-toolkit/glass-display-builders'
 import { moveHighlight } from 'even-toolkit/glass-nav'
 import { truncateGlassText, getTextWidth } from 'even-toolkit/pretext'
 import { createGlassScreenRouter, type GlassScreen } from 'even-toolkit/glass-screen-router'
-import { listRows, listRow, PREVIEW_PX, NO_PREVIEW, type AppState } from './store'
+import { listRows, listRow, PREVIEW_PX, NO_PREVIEW, AI_MARK, type AppState } from './store'
 import type { Pane } from './api'
 import { isConfigured, getPreview } from './config'
 
@@ -42,7 +42,7 @@ export interface Ctx {
 // A Codex session has a diamond where Claude has a circle.
 const GLYPH: Record<string, string> = { waiting: '!', working: '»', idle: '○', other: '·' }
 const glyph = (p: Pane) => p.done ? (p.agent === 'codex' ? '◆' : '●') : (p.agent === 'codex' && p.status === 'idle' ? '◇' : GLYPH[p.status] || '·')
-const PIN = '★'  // marks a pinned session (list row + open-session header)
+const PIN = '★'  // marks a pinned session in the open-session header (in the list its tag is in CAPITALS: the font has no bold)
 // The list screen is two columns sharing the display: rows in the left third (clipped to listPx), a
 // preview panel in the right two thirds (listPreview; AppGlasses columns). With the preview switched
 // off on the phone the rows get the whole width.
@@ -139,7 +139,7 @@ const listScreen: GlassScreen<AppState, Ctx> = {
       // (to listPx, leaving the right side for the preview). ▶ marks the selected row by TEXT (columns
       // page mode flattens the line highlight style); the 3-space else keeps rows aligned.
       formatter: (it, i) =>
-        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${it.pinned ? PIN : ''}${glyph(it)} ${it.tag}  ${it.label}` : '＋ new session'}`, listPx()),
+        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${glyph(it)} ${it.pinned ? it.tag.toUpperCase() : it.tag}  ${it.label}` : '＋ new session'}`, listPx()),
     })
     // The header must stay ONE line (a wrapped header pushes the list past the 10-line screen): with
     // every count in double digits the full bar is ~600px, so drop the least urgent counts to fit.
@@ -186,7 +186,7 @@ export function listPreview(s: AppState, screen: string): string {
   // the start.
   const wait = !!p && p.status === 'waiting', rows = wait ? 5 : 6
   const pv = s.preview.length <= rows ? s.preview
-    : s.preview.some((l) => l.startsWith('~ ')) ? [...s.preview.slice(0, rows - 1), truncateGlassText(s.preview[rows - 1] + ' …', PREVIEW_PX)]
+    : s.preview.some((l) => l.startsWith(AI_MARK + ' ')) ? [...s.preview.slice(0, rows - 1), truncateGlassText(s.preview[rows - 1] + ' …', PREVIEW_PX)]
     : [s.preview[0], ...s.preview.slice(1 - rows)]
   const body = !p ? ['Start a new Claude session', 'in a project folder.'] : [...(wait ? ['! needs you — tap to read'] : []), ...pv]
   // two blank lines keep it clear of the header, which runs the full width

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { App } from './AppGlasses'
 import { Setup } from './Setup'
 import { loadPersistedConfig, getConfig } from './config'
-import { subscribe, getSnapshot, submitTypedInput, setTypingText, cancelInput, cancelNewSession, refresh } from './store'
+import { subscribe, getSnapshot, submitTypedInput, setTypingText, cancelInput, cancelNewSession, refresh, hostBridgeLost, hostBridgeBack } from './store'
 
 // Capture uncaught errors so a crash is DIAGNOSABLE instead of a silent "quit": stash the last
 // one in localStorage (shown in Setup) and best-effort POST it to the backend journal.
@@ -18,7 +18,7 @@ const reportedAt = new Map<string, number>()
 const launchedAt = Date.now()
 let errorCount = 0
 let reports = 0
-function reportClientError(kind: string, err: unknown) {
+function reportClientError(kind: string, err: unknown, show = true) {
   errorCount++
   const now = Date.now()
   const e = err as { message?: string; stack?: string } | undefined
@@ -27,14 +27,26 @@ function reportClientError(kind: string, err: unknown) {
   reportedAt.set(head, now)
   reports++
   const msg = `${head}\n${(e && e.stack) || ''}\n[error #${errorCount}, ${Math.round((now - launchedAt) / 1000)}s after launch, build ${__APP_VERSION__} (${__BUILD__}), ${navigator.userAgent}]`.slice(0, 4000)
-  try { localStorage.setItem('conductor.lastError', msg) } catch { /* quota */ }
+  if (show) try { localStorage.setItem('conductor.lastError', msg) } catch { /* quota */ }
   try {
     const { base, token } = getConfig()
     if (base && token) fetch(`${base}/api/clientlog`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ msg }) }).catch(() => {})
   } catch { /* offline */ }
 }
 window.addEventListener('error', (e) => reportClientError('error', e.error ?? e.message))
-window.addEventListener('unhandledrejection', (e) => reportClientError('promise', (e as PromiseRejectionEvent).reason))
+// One rejection is not an app error but a state: the Even app's page hooks (focus/blur, "a resource
+// loaded") call the host, and once the host has let go of this page those calls fail with WebKit's
+// InvalidAccessError. Tell the store (the page goes quiet), log it once for diagnosis, and do not
+// show it on the phone as "Last app error".
+const hostGone = (r: unknown) => {
+  const e = r as { name?: string; message?: string } | undefined
+  return !!e && (e.name === 'InvalidAccessError' || /does not support the operation or argument/.test(String(e.message || '')))
+}
+window.addEventListener('unhandledrejection', (e) => {
+  const r = (e as PromiseRejectionEvent).reason
+  if (hostGone(r)) { hostBridgeLost(); reportClientError('promise', r, false) } else reportClientError('promise', r)
+})
+window.addEventListener('pointerdown', hostBridgeBack)  // a touch on this page means it is on screen again
 
 // Phone-side TEXT input — the alternative to voice at any "listening" point (reply, new-tag
 // name, new-session folder). Shows whenever the app is waiting for input, so the app is fully

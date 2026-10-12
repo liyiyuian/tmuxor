@@ -193,10 +193,10 @@ Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe =
   (switch it off in **Connection & settings** if you prefer the plain list). The same settings
   let you untick a workspace to leave its sessions off the glasses, and (with an Anthropic key on
   the backend) switch on **condensed replies**: the latest reply of an opened session shown as
-  about one screen, marked `~`.
+  about one screen, marked `＊`.
 - **AI summaries (optional, off by default)** — with `ANTHROPIC_API_KEY` set on the backend, the
   phone's **Connection & settings** shows “Summarize list previews with Claude Haiku”. Turn it on
-  and the preview shows a one-line summary (marked `~`) instead of the raw reply. Your backend sends
+  and the preview shows a one-line summary (marked `＊`) instead of the raw reply. Your backend sends
   the highlighted session's latest request and the end of its reply (up to 6,000 characters) to
   Anthropic under your key — once per change, never while the session is still working. Each
   summary is one small Claude Haiku request (a few hundred to ~2,000 input tokens).
