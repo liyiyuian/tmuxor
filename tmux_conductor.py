@@ -516,6 +516,38 @@ def _session_record(sd, claude_pid, sessionId, cwd):
     return {**info, "jsonl": _live_jsonl(projects_dir, sessionId)}
 
 
+_live_recs = {"t": 0.0, "v": []}  # every live sessions/<pid>.json record, refreshed every few seconds
+
+
+def live_session_records():
+    """[(pid, sessions_dir, record)] for every Claude process that is running now (procStart
+    guards against a recycled pid). Cached a few seconds: there are a few dozen small files."""
+    now = time.time()
+    if now - _live_recs["t"] < 5:
+        return _live_recs["v"]
+    out = []
+    for sd in SESSION_DIRS:
+        try:
+            files = list(sd.glob("*.json"))
+        except OSError:
+            continue
+        for f in files:
+            try:
+                info = json.loads(f.read_text())
+            except Exception:
+                continue
+            if str(info.get("procStart")) == str(_proc_start_ticks(f.stem)):
+                out.append((f.stem, sd, info))
+    _live_recs["t"], _live_recs["v"] = now, out
+    return out
+
+
+def session_record_for(pid, sd, info):
+    """A live record plus its transcript path, in the shape resolve_session returns."""
+    projects_dir = sd.parent / "projects" / _encode_project_dir(info.get("cwd", ""))
+    return {**info, "jsonl": _live_jsonl(projects_dir, info.get("sessionId"))}
+
+
 def resolve_session(pane):
     """The exact live session for a pane: its shell pid's `claude` descendant has
     a sessions/<pid>.json record. procStart guards against pid recycling. Returns

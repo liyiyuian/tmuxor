@@ -164,6 +164,12 @@ _sname_cache = {"t": 0.0, "sid": {}, "pid": {}}
 _SNAME_TTL = 20.0
 _hlabel_cache = {}   # herdr pane_id -> (name, ts): caches the process-info resolution
 _codex_files = {}    # Codex session id -> its rollout transcript path (a session's file never moves)
+
+
+def _norm_title(s):
+    """A terminal title / session name reduced to what can be compared: no leading status glyph,
+    single spaces, lower case."""
+    return re.sub(r"\s+", " ", re.sub(r"^[^\w]+", "", s or "")).strip().lower()
 _tab_cache = {"t": 0.0, "v": {}}     # herdr tab_id -> label, refreshed every few seconds
 _cxname_cache = {"key": None, "v": {}}  # Codex session id -> its thread name (~/.codex/session_index.jsonl)
 
@@ -356,6 +362,7 @@ class HerdrSource:
                 "is_claude": is_claude,
                 "agent": agent,
                 "_tab": _tab_cache["v"].get(rp.get("tab_id"), "") if per_tab[rp.get("tab_id")] == 1 else "",
+                "_title": rp.get("terminal_title_stripped") or rp.get("terminal_title") or "",   # Claude sets it to its session name
                 "_agent_status": rp.get("agent_status", "unknown"),
                 "_sid": (rp.get("agent_session") or {}).get("value"),  # Claude sessionId -> real name
             })
@@ -461,7 +468,23 @@ class HerdrSource:
             return {"jsonl": _codex_rollout(p.get("_sid")),
                     "status": "busy" if p.get("_agent_status") == "working" else "idle"}
         self._ensure_pid(p)
-        return tc.resolve_session(p)
+        rec = tc.resolve_session(p)   # the first Claude process under the pane that has a session record
+        # That is the session on screen only in the simple case. A pane's `claude` can also be a
+        # front end attached to a BACKGROUND session (kind 'bg') that runs under another pane, with
+        # other background sessions living under this one — then "first under the pane" is a
+        # different conversation and the glasses show a transcript that never moves (seen
+        # 2026-10-12). So trust what identifies the session on screen: herdr's own session id for
+        # the pane, else the pane's terminal title, which Claude sets to the session's name.
+        live = tc.live_session_records()
+        sid = p.get("_sid")
+        if sid:
+            hit = [r for r in live if r[2].get("sessionId") == sid]
+        else:
+            title = _norm_title(p.get("_title"))
+            hit = [r for r in live if title and _norm_title(r[2].get("name")) == title]
+        if len(hit) == 1 and (rec is None or hit[0][2].get("sessionId") != rec.get("sessionId")):
+            return tc.session_record_for(*hit[0])
+        return rec
 
     def transcript_candidates(self, p):
         self._ensure_pid(p)
