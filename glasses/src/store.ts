@@ -44,6 +44,7 @@ export interface AppState {
   canSummarize: boolean   // backend has an Anthropic key -> AI preview summaries can be offered (opt-in)
   canCondense: boolean    // …and it can condense a reply for the reading view (opt-in, its own switch)
   limits: Limit[]         // plan usage per account, for the line above the list (empty = none known)
+  shortView: boolean      // the open session shows its latest reply condensed (so the header can say what a hold switches to)
   asleep: boolean    // glasses HUD blanked after inactivity (idle screen-sleep)
   phase: Phase
   draft: string
@@ -70,7 +71,7 @@ export interface AppState {
 let state: AppState = {
   panes: [], tags: [], loading: true, error: null, listSel: '', listPos: 0, preview: [],
   activePaneN: null, activeLabel: '', activeIsClaude: false, activeCwd: '',
-  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], canSummarize: false, canCondense: false, limits: [], previewBusy: '', asleep: false,
+  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], canSummarize: false, canCondense: false, limits: [], shortView: false, previewBusy: '', asleep: false,
   phase: 'view', draft: '', draftKind: null, busy: false, status: '', typingText: '', draftLines: [], confirmScroll: 0, lastCost: 0, totalCost: 0,
   newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newCreate: false, newStatus: '', newPaneN: null,
 }
@@ -616,17 +617,22 @@ const latestReply = (turns: Turn[]) => {
   turns.forEach((t, i) => { if (t.role === 'user') u = i })
   return turns.slice(u + 1).filter((t) => t.role === 'assistant').map((t) => t.text).join('\n')
 }
+// The phone's "Condensed replies" switch is the permission — a reply goes to the model only while it
+// is on — and with it on every session opens condensed. A press and hold then flips the open session
+// to the full reply and back; with the switch off a hold changes nothing (it must not send anything).
+const viewOverride = new Map<string, boolean>()
+const wantShort = (n: string | null) => !!n && getCondense() && (viewOverride.get(n) ?? true)
 function renderConvo(): string[] {
-  const hit = getCondense() && !convoWorking && state.activePaneN ? condensedCache.get(state.activePaneN) : undefined
+  const hit = wantShort(state.activePaneN) && !convoWorking && state.activePaneN ? condensedCache.get(state.activePaneN) : undefined
   const ok = hit && hit.reply === latestReply(convoTurns)
-  return renderTurns(convoTurns, convoQueued, ok ? hit.text : null, condensing && !ok)
+  return renderTurns(convoTurns, convoQueued, ok ? hit.text : null, condensing && !ok && wantShort(state.activePaneN))
 }
 // Ask for the condensed reply when it is wanted and not known yet. `pending` answers are picked up by
 // the conversation poll calling this again (every 2.5 s). Same limits as the preview summaries: only
 // a settled session, only a backend that can, and not from a page nobody has touched for 10 minutes.
 let condenseAsk: string | null = null  // session with a request in flight
 function maybeCondense(n: string) {
-  if (state.activePaneN !== n || !getCondense() || !state.canCondense || convoWorking || condenseAsk === n) return
+  if (state.activePaneN !== n || !wantShort(n) || !state.canCondense || convoWorking || condenseAsk === n) return
   const reply = latestReply(convoTurns)
   if (!reply || condensedCache.get(n)?.reply === reply || Date.now() - lastActivity > SUMMARY_IDLE_MS) return
   condenseAsk = n
@@ -634,6 +640,7 @@ function maybeCondense(n: string) {
   paneCondensed(n).then((r) => {
     if (state.activePaneN !== n || r.etag !== etag) return  // moved on, or the transcript did: the next poll asks afresh
     if (!r.pending) condensedCache.set(n, { reply, text: r.summary ?? null })
+    if (!wantShort(n)) { condensing = false; return }       // switched back to the full reply meanwhile: keep the result, show nothing
     const was = condensing
     condensing = !!r.pending
     if (!r.pending || !was) { convoLines = renderConvo(); buildView() }
@@ -642,8 +649,31 @@ function maybeCondense(n: string) {
 }
 // the phone's "condense" switch changed while a session is open: redraw it now
 export function condenseSettingChanged() {
+  viewOverride.clear()  // the switch is the new starting point for every session
   if (!state.activePaneN || !state.activeIsClaude) return
-  condensing = false; convoLines = renderConvo(); buildView(); maybeCondense(state.activePaneN)
+  condensing = false; convoLines = renderConvo(); set({ shortView: wantShort(state.activePaneN) }); buildView(); maybeCondense(state.activePaneN)
+}
+// PRESS AND HOLD in an open session: switch it between the condensed and the full reply. It only
+// changes what is shown — nothing is sent to the session. It acts exactly when the header shows a
+// "hold=" hint (screens.ts): condensed replies on, a finished reply, no question on screen, not
+// while you are replying.
+export function toggleShortView() {
+  const n = state.activePaneN
+  if (!n || !getCondense() || !state.activeIsClaude || !state.canCondense || state.working || convoWorking || state.menu || state.phase !== 'view') return
+  viewOverride.set(n, !wantShort(n))
+  condensing = false; userScrolled = false
+  convoLines = renderConvo()
+  set({ shortView: wantShort(n), atBottom: false, scroll: lastPromptIndex(convoLines) })
+  buildView(); maybeCondense(n)
+}
+// PRESS AND HOLD in the list: go to the next session that needs you BELOW the highlighted row; with
+// none below, go to the top. So repeated holds walk through everything that is waiting, top to
+// bottom, and the top of the list is never more than one hold past the last of them.
+export function jumpToAttention() {
+  const rows = state.panes, at = listRow(state)
+  if (!rows.length || state.activePaneN) return
+  const i = rows.findIndex((p, k) => k > at && p.status === 'waiting')
+  selectRow(rows[i < 0 ? 0 : i].n)
 }
 function applyConversation(turns: Turn[], working: boolean, queued: string[] = []) {
   convoTurns = turns; convoQueued = queued; convoWorking = working
@@ -764,6 +794,7 @@ export function openPane(n: string, label: string, isClaude: boolean, cwd: strin
     pendingRestore = mem ?? null   // returning -> resume where they left off
     convoEtag = null; lastLiveSig = ''; userScrolled = false  // fresh pane -> force a full first fetch
     convoTurns = []; convoQueued = []; convoWorking = false; condensing = false
+    set({ shortView: wantShort(n) })
     const pull = () => paneConversation(n, convoEtag).then((r) => {
       if (state.activePaneN !== n) return
       if (!r.notModified) {  // (a 304 means nothing changed)
@@ -810,7 +841,7 @@ export function resetForSourceChange() {
   paneMem.clear()
   previewCache.clear()
   lastPanesSig = ''
-  lastRaw = []
+  lastRaw = []; viewOverride.clear()
   set({ panes: [], tags: [], loading: true, error: null, listSel: '', listPos: 0, preview: NO_PREVIEW, previewBusy: '' })
   refresh()
 }

@@ -3,7 +3,7 @@ import { useGlasses } from 'even-toolkit/useGlasses'
 import { EvenAppBridge, OsEventTypeList, pickLoose, waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
 import {
   getSnapshot, subscribe, refresh, noteActivity, idleTick,
-  listRows, listRow, selectRow, togglePin,
+  listRows, listRow, selectRow, togglePin, toggleShortView, jumpToAttention,
   openPane, closePane, scrollDetail, startVoice, stopVoice, cancelInput,
   redoVoice, sendNow, scrollConfirm,
   pickMenuOption, menuTabNext, submitMenu, scrollMenu, menuToPick, menuToRead, jumpToLatest,
@@ -24,12 +24,22 @@ const bridge = EvenAppBridge.getInstance()
 // arrived as a tap on SDK 0.0.11 and approved the highlighted option. Drop anything the SDK can't
 // name before any listener (even-toolkit's included) sees it, so a future gesture can't do the same.
 const listen = bridge.onEvenHubEvent.bind(bridge)
+let lastHoldAt = 0
 bridge.onEvenHubEvent = (cb) => listen((e) => {
   const ev = e.listEvent ?? e.textEvent ?? e.sysEvent
   if (ev && ev.eventType == null) {
     const raw = pickLoose(e.jsonData ?? {}, 'eventType')
     if (raw != null && OsEventTypeList.fromJson(raw) === undefined) return
   }
+  // Press and hold (SDK 0.0.14+). even-toolkit has no such gesture, so it is handled here and never
+  // reaches it: a hold must not be read as anything else. Its release is swallowed too.
+  // This wrapper runs once for EVERY listener (even-toolkit's and ours), so act on a hold once:
+  // a second hold cannot follow the first within a fraction of a second.
+  if (ev?.eventType === OsEventTypeList.LONG_PRESS_EVENT) {
+    if (Date.now() - lastHoldAt > 400) { lastHoldAt = Date.now(); onHold() }
+    return
+  }
+  if (ev?.eventType === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) return
   cb(e)
 })
 
@@ -62,6 +72,16 @@ bridge.textContainerUpgrade = async (u) => {
 }
 // The menu click arrives outside even-toolkit's action pipeline, so track where the glasses are.
 let lastNav: GlassNavState = { screen: 'list', highlightedIndex: 0 }
+// Press and hold = "the other view", never an action on a session: in the list it jumps to the next
+// session that needs you; in an open session it switches between the condensed and the full reply.
+// Like every gesture, the first one on a sleeping screen only wakes it.
+function onHold() {
+  const wasAsleep = getSnapshot().asleep
+  noteActivity()
+  if (wasAsleep) return
+  if (getSnapshot().activePaneN) toggleShortView()
+  else if (lastNav.screen === 'list') jumpToAttention()
+}
 // "Pin / unpin session": the open session, else the highlighted list row.
 function pinFromMenu() {
   const s = getSnapshot()

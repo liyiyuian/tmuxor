@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense, getUsageLine, setUsageLine } from './config'
+import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getAiSummary, setAiSummary, getSeenNews, setSeenNews, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense, getUsageLine, setUsageLine } from './config'
 import { listPanes, getUsage, type Usage, type UsageRow } from './api'
 import { subscribe, getSnapshot, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged, loadLimits } from './store'
 
@@ -60,6 +60,8 @@ function CostTable({ title, rows }: { title: string; rows: UsageRow[] }) {
     </div>
   )
 }
+// one short "what changed" note, shown once: a new gesture is useless if nobody knows it exists
+const NEWS_ID = 'hold-1'
 const SESSIONS_SHOWN = 6  // pinned sessions sort first, so they are always among these
 // screen-sleep choices; a value set by an older build that is not one of these is shown as its own choice
 const SLEEP: [number, string][] = [[0, 'Never'], [30, '30 s'], [60, '1 min'], [300, '5 min']]
@@ -84,6 +86,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [condense, setCond] = useState(getCondense())
   const [usage, setUsage] = useState<Usage | null>(null)
   const [usageLine, setUl] = useState(getUsageLine())
+  const [news, setNews] = useState(() => getSeenNews() !== NEWS_ID)
   const [allSessions, setAllSessions] = useState(false)  // the session list shows its first few until asked for the rest
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -180,6 +183,18 @@ export function Setup({ onSave }: { onSave: () => void }) {
         </div>
       )}
 
+      {configured && news && (
+        <div data-testid="news" style={{ ...card, padding: '12px 14px', marginTop: 14, borderColor: C.accent }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>New: press and hold</div>
+          <div style={{ fontSize: 13, color: C.soft, marginTop: 4, lineHeight: 1.45 }}>
+            In the list it jumps to the next session that needs you, then back to the top. In a session it switches between
+            the condensed and the full reply (when Condensed replies is on). Tap, double-tap and swipe work as before.
+          </div>
+          <button type="button" style={{ ...pill(true), marginTop: 10, cursor: 'pointer', fontFamily: 'inherit' }}
+            onClick={() => { setSeenNews(NEWS_ID); setNews(false) }}>Got it</button>
+        </div>
+      )}
+
       {!configured && CONNECTION}
 
       {/* everyday settings, most used first. Every control is a button and applies at once. */}
@@ -231,7 +246,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
               onChange={(v) => { setAi(v); setAiSummary(v) }} />
           )}
           {live.canCondense && (
-            <Toggle label="Condensed replies" hint="Open a session to its latest reply cut to one screen. Sends that request and reply to Anthropic with your own key." on={condense}
+            <Toggle label="Condensed replies" hint="Open a session to its latest reply cut to one screen; press and hold for the full reply. Sends that request and reply to Anthropic with your own key." on={condense}
               onChange={(v) => { setCond(v); setCondense(v); condenseSettingChanged() }} />
           )}
           <Toggle label="Plan usage" on={usageLine}
@@ -276,6 +291,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
           <li><b>List</b> — swipe to move, tap to open, double-tap to exit.</li>
           <li><b>In a session</b> — swipe to scroll, tap to reply (speak, or type here), double-tap to go back.</li>
           <li><b>When it asks you something</b> — read it, tap, swipe to your answer, tap to choose.</li>
+          <li><b>Press and hold</b> — in the list: jump to the next session that needs you, then back to the top. In a session, with Condensed replies on: switch between the condensed and the full reply. It never sends or approves anything.</li>
           <li><b>Marks</b> — ○ idle · » working · ● finished · ! needs you (Codex: ◇ ◆). CAPITALS = pinned. ＊ = written by AI.</li>
           <li><b>Pin from the glasses</b> — highlight a session, tap then press and hold, choose “Pin / unpin session”.</li>
         </ul>

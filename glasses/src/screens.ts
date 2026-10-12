@@ -7,7 +7,7 @@ import { truncateGlassText, getTextWidth } from 'even-toolkit/pretext'
 import { createGlassScreenRouter, type GlassScreen } from 'even-toolkit/glass-screen-router'
 import { listRows, listRow, PREVIEW_PX, NO_PREVIEW, AI_MARK, type AppState } from './store'
 import type { Pane } from './api'
-import { isConfigured, getPreview, getUsageLine } from './config'
+import { isConfigured, getPreview, getUsageLine, getCondense } from './config'
 
 export interface Ctx {
   exitApp: () => void
@@ -307,9 +307,15 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
     const up = top > 0 ? '▲' : ' '
     const dn = top + slots < s.lines.length ? '▼' : ' '
     const wk = s.working ? ' »' : ''  // » = working, as in the list (⋯ is not in the G2 font, it drew blank)
-    const talk = s.voiceOn ? 'tap=talk' : 'tap=type'
+    // the tap hint, and — exactly when a press and hold would do something (store toggleShortView) —
+    // what it switches to
+    const hold = s.activeIsClaude && s.canCondense && getCondense() && !s.working ? (s.shortView ? ' hold=full' : ' hold=short') : ''
+    const talk = (s.voiceOn ? 'tap=talk' : 'tap=type') + hold
     const pos = s.lines.length > slots ? ` ${Math.min(top + slots, s.lines.length)}/${s.lines.length}` : ''
-    const head = s.status ? `${title}  ${s.status}` : `${title}${wk}  ${up}${dn}${pos}  ${talk}`
+    // a long name gives way to the hints (they are the only place the glasses say what a gesture
+    // does), not the other way round
+    const tail = `${wk}  ${up}${dn}${pos}  ${talk}`
+    const head = s.status ? `${title}  ${s.status}` : truncateGlassText(title, Math.max(120, 548 - getTextWidth(tail))) + tail
     return { lines: [
       line(truncateGlassText(head), 'normal'),
       ...win.map((l) => line(truncateGlassText(l), 'meta')),
