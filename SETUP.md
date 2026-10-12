@@ -233,7 +233,8 @@ Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe =
   session, with condensed replies on), and quick switches for the preview, AI summary, plan
   usage, wake on finish and screen sleep (never / 30 s).
 - **Conversation** — opens at the latest question; swipe to scroll, **tap = talk** (speak a
-  reply → review screen → tap to send), double-tap = back.
+  reply → review screen → tap to send), double-tap = back. You can keep scrolling while it
+  listens. A long conversation loads its recent part; swipe up at the top for earlier messages.
 - **New session** — pick a **tag** (an existing workspace or ＋ speak a new one) → speak a
   **folder** → confirm → it opens a Claude session there.
 - **When a session asks a question** (a menu), the options become a selectable list.

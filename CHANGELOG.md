@@ -6,7 +6,22 @@ project memory; this file is the short "what changed" for each build.
 > Builds: G2C ships as a single **public** `.ehpk` — it bakes no secrets, so every user
 > enters their own backend URL + token on the app's Setup screen.
 
-## 1.0.41 — 2026-10-12
+## 1.0.42 — 2026-10-12
+Everything since 1.0.40, including 1.0.41, which was only a private test build.
+
+- **Lighter on your computer and your phone.** The backend reads a session's transcript
+  incrementally — only what was added since the last look — instead of parsing the whole file on
+  every change (0.15-0.8 s of CPU each time on long sessions, every 2.5 s while one was open on the
+  glasses). The reading view loads the recent part of a conversation and fetches earlier messages
+  when you scroll up to the top, instead of downloading and laying out the entire history on
+  every update. Resting on the session list makes 16 requests a minute instead of 37. Needs the
+  updated backend for the first two.
+- **Keep reading while you speak.** While it listens, and while your words are transcribed, the
+  conversation stays on screen and swipes still scroll it. The screen changes only when there is
+  something new to read: what you said.
+- **Installer: upgrading keeps your settings.** Running `install.sh` again no longer drops your
+  OpenAI key when you press Enter at its prompt, keeps a custom port, and restarts the service so
+  it runs the new files.
 - **More in the glasses menu.** The system menu (tap, then hold) now has **Next that needs you**
   — in the session list it jumps to the next session waiting on you below the highlighted row, and
   with none below, back to the top — and **Condensed / full reply**, which switches an open

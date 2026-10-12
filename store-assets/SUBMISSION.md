@@ -14,18 +14,19 @@ this folder. Agent supplies the text/images; you do the portal steps.
 | Portal field | What to paste |
 |---|---|
 | **App name** | `G2C` |
-| **Subtitle / tagline** | `Your Herdr fleet of Claude Code and Codex sessions, hands-free` |
+| **Subtitle / tagline** (≤50 chars) | `Your Claude Code & Codex sessions, hands-free` |
 | **Category** | `Productivity / Developer Tools` |
-| **Description** (≤1000 chars) | the full contents of **`tester-quickstart.txt`** (~960 chars) |
+| **Description** (≤2000 chars) | the **DESCRIPTION** section of **`listing.txt`** (1,985 chars) |
 | **Privacy policy** | the **PRIVACY POLICY** section of **`listing.txt`** |
 | **Terms & conditions** | the **TERMS & CONDITIONS** section of **`listing.txt`** |
 | **App icon** | **`../glasses/icon-512.png`** |
 
 ## 2. Screenshots (upload in this order, from `screenshots/`)
-1. `01-fleet-list.png` — your sessions, sorted by what needs you (▶ marks the selected row)
-2. `02-conversation.png` — read a session's real prompts + replies (footer = hints + position)
+1. `01-fleet-list.png` — your sessions in Herdr's order, with the highlighted one's latest reply beside the list and plan usage in the top row
+2. `02-conversation.png` — read a session's real prompts + replies
 3. `03-approve-command.png` — read the full command on the glasses before you approve it
 4. `04-new-session.png` — start a new session: pick a project tag
+5. `05-ai-summary.png` — optional: the preview as a short AI summary
 
 *(All 576×288, captured from the Even Hub simulator's automation API with DEMO/fake data — never
 real sessions. Regenerate with `tools/capture-screenshots.sh`.)*

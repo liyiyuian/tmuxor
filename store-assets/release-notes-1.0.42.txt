@@ -1,0 +1,193 @@
+G2C 1.0.42 — release notes
+==========================
+
+HUB CHANGELOG (paste into the version's changelog field)
+---------------------------------------------------------
+New: a preview of each session's latest reply beside the list, Codex sessions, plan-usage bars, a glasses menu (tap, then hold) with quick actions and settings, optional AI summaries and condensed replies with your own key, and you can keep reading while you speak.
+Fixed: prompts sent while the agent was busy were missing from the conversation; opening a session could make it scroll up and down on your computer; a long press could act as a tap.
+Requires Even Realities app 2.2.10 or later. Now for Herdr; update your backend by running install.sh again.
+
+
+UPDATING A SELF-HOSTED BACKEND
+------------------------------
+Several things in this version need the updated backend (model choice, summaries sized to the
+preview, plan usage, API cost, queued prompts, the lighter transcript reading). Run the installer
+again on your computer — it keeps your token, OpenAI key, port and anything you added to the
+settings file, and restarts the service:
+
+    curl -fsSL https://raw.githubusercontent.com/liyiyuian/tmuxor/main/install.sh | bash
+
+G2C is built for Herdr now (herdr.dev); the installer checks for it. The app also works against
+an older backend: what that backend cannot do is simply not offered.
+
+
+FULL LOG (everything since 1.0.37, the last public version)
+-----------------------------------------------------------
+## 1.0.42 — 2026-10-12
+Everything since 1.0.40, including 1.0.41, which was only a private test build.
+
+- **Lighter on your computer and your phone.** The backend reads a session's transcript
+  incrementally — only what was added since the last look — instead of parsing the whole file on
+  every change (0.15-0.8 s of CPU each time on long sessions, every 2.5 s while one was open on the
+  glasses). The reading view loads the recent part of a conversation and fetches earlier messages
+  when you scroll up to the top, instead of downloading and laying out the entire history on
+  every update. Resting on the session list makes 16 requests a minute instead of 37. Needs the
+  updated backend for the first two.
+- **Keep reading while you speak.** While it listens, and while your words are transcribed, the
+  conversation stays on screen and swipes still scroll it. The screen changes only when there is
+  something new to read: what you said.
+- **Installer: upgrading keeps your settings.** Running `install.sh` again no longer drops your
+  OpenAI key when you press Enter at its prompt, keeps a custom port, and restarts the service so
+  it runs the new files.
+- **More in the glasses menu.** The system menu (tap, then hold) now has **Next that needs you**
+  — in the session list it jumps to the next session waiting on you below the highlighted row, and
+  with none below, back to the top — and **Condensed / full reply**, which switches an open
+  session's latest reply (with "Condensed replies" on; reopening starts from the phone's setting
+  again), next to **Pin / unpin session**. It also has quick switches for settings you may want to
+  flip without the phone: **Preview**, **AI summary**, **Plan usage**, **Wake on finish** and
+  **Sleep: never / 30 s**; the top row says what changed for a moment, and the phone page follows.
+  A plain press and hold is not used: on the glasses it arrives as an ordinary tap first, so it
+  could never be told apart from one in time.
+- **Choose the models.** The phone's settings list the models your backend offers, cheapest first
+  with list prices: for AI summaries and condensed replies Claude Haiku 5.5 (the default, and the
+  cheapest Anthropic model), Sonnet 5.5 or Opus 5.5; for voice, OpenAI Whisper (default), GPT-4o
+  mini Transcribe (half the price) or GPT-4o Transcribe. Needs the updated backend.
+- **AI summaries fit the preview.** The app tells the backend how many characters the preview
+  panel can show (fewer when a "needs you" line takes a row); the model is asked for less than
+  that and the text is held to it, ending at a whole sentence where it can. Before, a summary
+  could run past the panel and lose its end. Needs the updated backend.
+- **Fix: prompts sent while the agent was busy went missing.** Claude Code hands such a prompt to
+  the agent in the middle of its turn and records it differently from a normal prompt; the
+  reading view skipped those, so the conversation showed the replies without the prompts that
+  caused them. They are shown now. While still waiting, queued prompts appear right under the
+  latest prompt instead of at the far end of a long reply. Needs the updated backend.
+- **API cost: all time.** A third total next to Today and Last 7 days, with the date the records
+  start. Needs the updated backend.
+- **Settings order.** Workspaces, then Sessions, then On the glasses.
+- **The list follows your layout.** Sessions are in Herdr's own order — workspaces, then tabs —
+  with pinned ones on top. A session that finished since you last opened it (●) comes up to the top
+  and goes back to its place once you open it; working, idle and needs-you sessions stay where
+  they are (their mark and the counts in the header show the status).
+- **Codex sessions.** Codex CLI sessions now appear in the list, named after their Herdr tab, with
+  the same preview and reading view. Needs the updated backend. Answering a Codex approval prompt
+  from the glasses has not been tested.
+- **New status marks.** **○** idle, **»** working, **●** finished since you last opened it, **!**
+  needs you; a Codex session uses **◇** and **◆**. (Working and finished swapped marks.)
+- **Herdr only.** G2C is now built and documented for Herdr. The phone no longer offers a backend
+  picker, and the backend reads Herdr by default.
+- **Settings on one page.** "Connection & settings" is always open, and the list of sessions to
+  pin (★) now lives inside it.
+- **Installer fixes.** `install.sh` now also downloads `sources.py` (without it a fresh install could
+  not start), checks for Herdr instead of tmux, tells the service where the `herdr` binary is, and
+  keeps lines you added to the settings file (such as `ANTHROPIC_API_KEY`) when it is re-run.
+- **Choose which workspaces to show.** The phone's settings list your workspaces with a tick each
+  (all on by default); untick one and its sessions are left off the glasses.
+- **Optional condensed replies (off by default).** A second switch in the phone's settings,
+  "Condense the latest reply with Claude Haiku": opening a session then shows its latest reply as
+  about one screen (marked `＊`), leading with anything it is waiting on you for and keeping the
+  exact names, numbers and commands. While it is being written the view says "＊ condensing…" above
+  the full reply. Earlier replies, short replies and approval prompts are never condensed; switch it
+  off to read the full reply. Same rules as the preview summaries: your own Anthropic key on your
+  backend, once per reply, never while the session is working. Needs the updated backend.
+- **Fix: summaries garbled names.** Cleaning the model's text removed every `_`, `*`, `#` and `>`,
+  so `rotate_token()` became `rotatetoken()` and `a -> b` became `a - b`. Only markdown marks are
+  removed now.
+- **Better instructions for the model.** Summaries and condensed replies now give the answer or
+  outcome itself instead of describing it, start with "Needs you:" only when the session really is
+  waiting on you, list choices only when the reply offers them (they are never invented), and are
+  cut at a word, not mid-word, when they run long.
+- **A new mark for model-written text.** It starts with `＊` (the closest the glasses font has to
+  Claude's spark) instead of `~`.
+- **Pinned sessions** show their workspace letter in CAPITALS on the glasses instead of a ★ in
+  front (the glasses font has no bold); on the phone a pinned row is bold.
+- **Settings redesigned.** What you use most is on top, and every setting is a button: tap a
+  session to pin it, tap a workspace to hide it, tap a row to switch something on or off. Short
+  one-line hints replace the long explanations. The connection form folds away once you are
+  connected. The session list no longer scrolls inside the page (that could trap the page on a
+  phone); it shows six and expands in place.
+- **Plan usage in the top row.** Beside the session counts, the top row shows how much of your
+  Claude and Codex plans is left, as small level bars: per account one for the 5-hour window and
+  one for the week (like a battery: tall = plenty left). It takes no row of its own; the counts drop their words
+  to make room. The phone shows the exact percentages and has a switch for it. The backend reads
+  this from local files only: your newest Codex session, and for Claude a small status-line helper
+  (`g2c_usage_hook.py`, see SETUP.md). Needs the updated backend.
+- **API cost.** The settings page shows what your backend's own API calls cost today and over the
+  last 7 days, by provider and model, at list prices (your Claude or Codex subscription is not
+  part of this). Needs the updated backend.
+- **Shorter rows beside the preview.** With the preview on, a row shows only the first letter of
+  its workspace, so more of the session's name fits; the preview's title shows the whole name.
+- **Fix: a session attached to a background session showed the wrong conversation.** When a pane's
+  Claude was a front end for a background session running elsewhere, the glasses read a different
+  session under that pane and never updated. The backend now follows Herdr's session id, or the
+  pane's title, to the session actually on screen.
+- **A page the Even app has let go of goes quiet.** After the app is closed or reopened the Even
+  app keeps the old page alive; that page now stops polling instead of failing over and over, and
+  the event is no longer shown as "Last app error".
+- **Queued prompts.** A prompt you send while the agent is busy waits in its queue; the reading
+  view now shows one line per waiting prompt ("◇ queued: …") until the agent takes it up.
+- **The preview says when more is coming.** Its rule shows "loading…", "updating…" or
+  "summarizing…" while newer text is on the way, so you don't start reading something that is about
+  to be replaced.
+
+## 1.0.40 — 2026-10-12
+*(1.0.39 was a test build and was never published; this entry covers both.)*
+- **Preview beside the list.** The right two thirds of the session list is now a panel for the
+  highlighted session: its full name, a rule, then its latest exchange — your last prompt and the
+  end of the reply — so you can tell what a session is doing, or what it concluded, without opening
+  it. A session that needs you says so. Session names in the list are clipped to make room (the
+  panel's title shows the full name). Don't want it? Switch off "Show a preview of the highlighted
+  session beside the list" in the phone's settings and the list gets the whole width back, with no
+  extra requests. Nothing is drawn or fetched while you are still swiping:
+  the preview appears when you pause (about half a second), so scrolling costs the glasses no more
+  than it did before. With the updated backend the preview downloads about 2 KB instead of the whole
+  conversation; an older backend still works, it just transfers more.
+- **Less Bluetooth traffic everywhere.** The app now sends a part of the screen to the glasses only
+  when its text actually changed. Before, every update re-sent the whole screen, including an
+  identical copy every 5 seconds while idle.
+- **Optional AI summaries (off by default).** If your backend has your own Anthropic API key, the
+  phone's settings offer "Summarize list previews with Claude Haiku". When on, the preview shows a
+  one-line summary (marked `~`) that leads with what the session is waiting on. Your backend sends
+  the highlighted session's latest request and the end of its reply to Anthropic under your key:
+  once per change in the words being summarized (not every time the transcript file is touched),
+  never while the session is still working, never from a page you haven't touched for 10 minutes,
+  and never again for a transcript that was declined or failed. Needs the updated backend (`conductor_api.py`); without it, or with the
+  switch off, you get the plain preview and no extra requests.
+- **Fix: an error could be reported thousands of times a minute.** The Even app's web view reports
+  every network request a plugin makes to the host app; when that host call fails, the failure is
+  itself an error — and this app's error reporter answered each one with another network request.
+  On one phone that looped about 9,000 times a minute, from every copy of the page the Even app had
+  kept alive. The reporter now sends at most one report per distinct error per minute and 20 per
+  launch, and the backend counts repeats instead of logging each one. (Published 1.0.36–1.0.37 have
+  the uncapped reporter.)
+- **Fix: the preview and summaries treated Claude Code's auto-compaction text as your request.**
+  After a session compacted, the preview's first line read "This session is being continued…" and
+  the summary was asked about that text. The backend now skips those records (also in the reading
+  view), and sends at most the first 2,000 characters of a request to the model.
+- **Which build is this?** The phone screen now shows the version and build time at the bottom.
+- **Fix: the "working" indicator was invisible.** It used a glyph the glasses' font doesn't have,
+  so it drew blank in the session header and on the live activity line. It is now ●, the same
+  mark the list uses for a working session.
+
+## 1.0.38 — 2026-10-08
+- **New name: G2C** (was TMUXor). Display name only — same app and package id, so it updates in
+  place and keeps your settings; the `tmuxor:` setup code from `install.sh` still works.
+- **Pin sessions to the top.** Star a session and it stays in a ★ band at the top of the list
+  (ordered by status inside the band). Pin from the phone — the app screen now lists your sessions
+  with a ★ toggle — or from the session list on the glasses: highlight it, tap then press-and-hold to
+  open the system menu, and choose **Pin / unpin session**. Pins are saved on your phone alongside
+  your connection settings; no backend update is needed.
+- **Safety fix: a long-press could approve a command.** Newer Even apps send long-press events. The
+  SDK this app was built on (0.0.11) didn't know them, so one arrived as a plain tap — on the
+  approve screen that picked the highlighted option, and the release picked it again (reproduced in
+  the Even simulator; not confirmed on hardware). Fixed by moving to Even Hub SDK 0.0.16, plus a
+  guard that drops any event type the SDK can't name.
+- **The highlight follows the session, not the row.** The list re-sorts as sessions change state;
+  the ▶ used to stay on a row number, so it could slide onto a different session between your swipe
+  and your tap. It is now anchored to the session.
+- **Easier list.** It opens on the session that most needs you; **＋ new session** moved to the last
+  row (one swipe up from the top). The header reads SESSIONS and always stays on one line. While
+  the app is not set up, loading, or offline, taps on the glasses do nothing (and make no requests).
+- **Phone screen.** Leads with your sessions and a short "How to use the glasses" guide; the
+  connection form folds away once you're connected.
+- **Requires Even app 2.2.10 or later** (Even Hub SDK 0.0.16). Update the Even app first if this
+  build doesn't appear.
