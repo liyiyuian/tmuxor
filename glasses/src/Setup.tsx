@@ -163,7 +163,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
       <details style={{ marginTop: 14 }}>
         <summary style={{ ...fold, fontSize: 13, fontWeight: 500, color: C.soft, padding: '6px 0' }}>Enter it by hand</summary>
         <label style={label} htmlFor="cfg-url">Backend URL</label>
-        <input id="cfg-url" type="url" inputMode="url" style={input} value={base} onChange={(e) => { setBase(e.target.value); setErr('') }} placeholder="https://… (your Tailscale address)" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+        <input id="cfg-url" type="url" inputMode="url" style={input} value={base} onChange={(e) => { setBase(e.target.value); setErr('') }} placeholder="your Tailscale address (starts with https)" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
         <label style={label} htmlFor="cfg-token">Token</label>
         <input id="cfg-token" type="password" style={input} value={token} onChange={(e) => { setToken(e.target.value); setErr('') }} placeholder="your CONDUCTOR_TOKEN" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
         <label style={label} htmlFor="cfg-projects">Projects folder (optional)</label>
