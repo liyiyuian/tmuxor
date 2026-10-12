@@ -197,7 +197,9 @@ Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe =
   double-tap to exit. The last row is **＋ new session** (one swipe up from the top). The right
   two thirds of the screen previews the highlighted session's last prompt and the end of its reply
   (switch it off in **Connection & settings** if you prefer the plain list). The same settings
-  let you untick a workspace to leave its sessions off the glasses.
+  let you untick a workspace to leave its sessions off the glasses, and (with an Anthropic key on
+  the backend) switch on **condensed replies**: the latest reply of an opened session shown as
+  about one screen, marked `~`.
 - **AI summaries (optional, off by default)** — with `ANTHROPIC_API_KEY` set on the backend, the
   phone's **Connection & settings** shows “Summarize list previews with Claude Haiku”. Turn it on
   and the preview shows a one-line summary (marked `~`) instead of the raw reply. Your backend sends

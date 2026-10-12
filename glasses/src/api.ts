@@ -52,7 +52,7 @@ const keyPathQ = () => { const p = getOpenaiKeyPath(); return p ? `keypath=${enc
 // `sources` = which backends this machine can serve (authed-only); `source` = its default.
 // The phone shows a picker only when >1 is offered; absent (older backend) => tmux only.
 // `summary` = the backend has an Anthropic key and can write AI summaries (it only does when asked).
-export async function health(): Promise<{ ok: boolean; voice: boolean; checked?: string[]; sources?: string[]; source?: string; summary?: boolean }> {
+export async function health(): Promise<{ ok: boolean; voice: boolean; checked?: string[]; sources?: string[]; source?: string; summary?: boolean; condense?: boolean }> {
   const r = await fetch(`${base()}/api/health${qs(keyPathQ())}`, { headers: authHeaders() })
   if (!r.ok) throw new Error(`health ${r.status}`)
   return r.json()
@@ -88,6 +88,14 @@ export async function paneConversation(n: string, etag?: string | null, opts: { 
 export async function paneSummary(n: string): Promise<{ summary?: string | null; pending?: boolean; etag?: string | null }> {
   const r = await fetch(`${base()}/api/panes/${pid(n)}/summary${qs(srcParam())}`, { headers: authHeaders(), cache: 'no-store' })
   if (!r.ok) throw new Error(`paneSummary ${r.status}`)
+  return r.json()
+}
+
+// Opt-in condensed version of a session's latest reply, for the reading view. Same shape and rules
+// as paneSummary; `summary` null = nothing to condense (the reply is short, declined, …): show it whole.
+export async function paneCondensed(n: string): Promise<{ summary?: string | null; pending?: boolean; etag?: string | null }> {
+  const r = await fetch(`${base()}/api/panes/${pid(n)}/condensed${qs(srcParam())}`, { headers: authHeaders(), cache: 'no-store' })
+  if (!r.ok) throw new Error(`paneCondensed ${r.status}`)
   return r.json()
 }
 

@@ -13,6 +13,7 @@ const LS_WAKE_CHANGE = 'conductor.wakeOnChange'  // wake the HUD when a session 
 const LS_SOURCE = 'conductor.source'             // which backend multiplexer to drive: '' = backend default, else 'tmux'|'herdr'
 const LS_PINS = 'conductor.pins'                 // sessions pinned to the top of the list (client-side; see Pin)
 const LS_PREVIEW = 'conductor.preview'           // show the highlighted session's latest exchange beside the list (on unless turned off)
+const LS_CONDENSE = 'conductor.condense'         // opt-in: show the latest reply condensed (same Anthropic key as the summaries)
 const LS_HIDDEN_TAGS = 'conductor.hiddenTags'    // workspaces (tags) whose sessions are left off the list — none unless the user unticks one
 const LS_AI_SUMMARY = 'conductor.aiSummary'      // opt-in: summarize list previews with the user's own Anthropic key
 const PERSIST_KEY = 'conductor.config'           // single key in the phone app's persistent store
@@ -41,6 +42,8 @@ export function getWakeOnChange(): boolean { return localStorage.getItem(LS_WAKE
 // otherwise 'tmux' | 'herdr'. Sent as ?source= on every backend call; the backend gates on
 // what it actually has (advertised via /api/health) and falls back to its default if absent.
 export function getSource(): string { return localStorage.getItem(LS_SOURCE) || '' }
+// Condensed replies in the reading view. OFF unless turned on, for the same reasons as getAiSummary.
+export function getCondense(): boolean { return localStorage.getItem(LS_CONDENSE) === '1' }
 export function getHiddenTags(): string[] {
   try { const v = JSON.parse(localStorage.getItem(LS_HIDDEN_TAGS) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] }
 }
@@ -61,7 +64,7 @@ export function getPins(): Pin[] {
 function persist() {
   const c = getConfig()
   waitForEvenAppBridge()
-    .then((b) => b.setLocalStorage(PERSIST_KEY, JSON.stringify({ base: c.base, token: c.token, projectsDir: getProjectsDir(), openaiKeyPath: getOpenaiKeyPath(), idleSleepSec: getIdleSleepSec(), wakeOnChange: getWakeOnChange(), source: getSource(), pins: getPins(), aiSummary: getAiSummary(), preview: getPreview(), hiddenTags: getHiddenTags() })))
+    .then((b) => b.setLocalStorage(PERSIST_KEY, JSON.stringify({ base: c.base, token: c.token, projectsDir: getProjectsDir(), openaiKeyPath: getOpenaiKeyPath(), idleSleepSec: getIdleSleepSec(), wakeOnChange: getWakeOnChange(), source: getSource(), pins: getPins(), aiSummary: getAiSummary(), preview: getPreview(), hiddenTags: getHiddenTags(), condense: getCondense() })))
     .catch(() => {})
 }
 
@@ -76,6 +79,7 @@ export function setIdleSleepSec(n: number) { localStorage.setItem(LS_IDLE_SEC, S
 export function setWakeOnChange(on: boolean) { localStorage.setItem(LS_WAKE_CHANGE, on ? '1' : '0'); persist() }
 export function setSource(s: string) { localStorage.setItem(LS_SOURCE, (s || '').trim()); persist() }
 export function setPins(p: Pin[]) { localStorage.setItem(LS_PINS, JSON.stringify(p)); persist() }
+export function setCondense(on: boolean) { localStorage.setItem(LS_CONDENSE, on ? '1' : '0'); persist() }
 export function setHiddenTags(t: string[]) { localStorage.setItem(LS_HIDDEN_TAGS, JSON.stringify(t)); persist() }
 export function setPreview(on: boolean) { localStorage.setItem(LS_PREVIEW, on ? '1' : '0'); persist() }
 export function setAiSummary(on: boolean) { localStorage.setItem(LS_AI_SUMMARY, on ? '1' : '0'); persist() }
@@ -106,6 +110,7 @@ export async function loadPersistedConfig(): Promise<void> {
         if (c.aiSummary != null) localStorage.setItem(LS_AI_SUMMARY, c.aiSummary ? '1' : '0')
         if (c.preview != null) localStorage.setItem(LS_PREVIEW, c.preview ? '1' : '0')
         if (Array.isArray(c.hiddenTags)) localStorage.setItem(LS_HIDDEN_TAGS, JSON.stringify(c.hiddenTags))
+        if (c.condense != null) localStorage.setItem(LS_CONDENSE, c.condense ? '1' : '0')
       }
     }
   } catch { /* no bridge / nothing stored -> Setup screen */ }

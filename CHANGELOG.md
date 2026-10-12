@@ -16,6 +16,16 @@ project memory; this file is the short "what changed" for each build.
   approval prompt from the glasses has not been tested.
 - **Choose which workspaces to show.** The phone's settings list your workspaces with a tick each
   (all on by default); untick one and its sessions are left off the glasses.
+- **Optional condensed replies (off by default).** A second switch in the phone's settings,
+  "Condense the latest reply with Claude Haiku": opening a session then shows its latest reply as
+  about one screen (marked `~`), leading with anything it is waiting on you for and keeping the
+  exact names, numbers and commands. While it is being written the view says "~ condensing…" above
+  the full reply. Earlier replies, short replies and approval prompts are never condensed; switch it
+  off to read the full reply. Same rules as the preview summaries: your own Anthropic key on your
+  backend, once per reply, never while the session is working. Needs the updated backend.
+- **Fix: summaries garbled names.** Cleaning the model's text removed every `_`, `*`, `#` and `>`,
+  so `rotate_token()` became `rotatetoken()` and `a -> b` became `a - b`. Only markdown marks are
+  removed now.
 - **Queued prompts.** A prompt you send while the agent is busy waits in its queue; the reading
   view now shows one line per waiting prompt ("◇ queued: …") until the agent takes it up.
 - **The preview says when more is coming.** Its rule shows "loading…", "updating…" or

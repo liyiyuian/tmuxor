@@ -1,10 +1,10 @@
 // External store + actions for the glasses control flow.
 // Screens: list <-> detail. Within detail, a phase drives the sub-state:
 //   view (scroll live pane, or MENU mode if the pane is asking) -> listening (mic) -> confirm (send).
-import { listPanes, paneScreen, paneConversation, paneSummary, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
+import { listPanes, paneScreen, paneConversation, paneSummary, paneCondensed, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
 import { GlassBridgeSource } from 'even-toolkit/stt'
 import { getTextWidth, truncateGlassText } from 'even-toolkit/pretext'
-import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins, getAiSummary, getPreview, getHiddenTags } from './config'
+import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins, getAiSummary, getPreview, getHiddenTags, getCondense } from './config'
 
 export type Phase = 'view' | 'listening' | 'confirm'
 const SLOTS = 9
@@ -42,6 +42,7 @@ export interface AppState {
   voiceOn: boolean   // backend has an OpenAI key -> voice replies available
   voiceChecked: string[]  // when voice off, the locations the backend checked for a key
   canSummarize: boolean   // backend has an Anthropic key -> AI preview summaries can be offered (opt-in)
+  canCondense: boolean    // …and it can condense a reply for the reading view (opt-in, its own switch)
   asleep: boolean    // glasses HUD blanked after inactivity (idle screen-sleep)
   phase: Phase
   draft: string
@@ -68,7 +69,7 @@ export interface AppState {
 let state: AppState = {
   panes: [], tags: [], loading: true, error: null, listSel: '', listPos: 0, preview: [],
   activePaneN: null, activeLabel: '', activeIsClaude: false, activeCwd: '',
-  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], canSummarize: false, previewBusy: '', asleep: false,
+  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], canSummarize: false, canCondense: false, previewBusy: '', asleep: false,
   phase: 'view', draft: '', draftKind: null, busy: false, status: '', typingText: '', draftLines: [], confirmScroll: 0, lastCost: 0, totalCost: 0,
   newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newCreate: false, newStatus: '', newPaneN: null,
 }
@@ -301,7 +302,7 @@ export async function refresh() {
     const sig = JSON.stringify(panes)
     if (sig !== lastPanesSig) { lastPanesSig = sig; set({ ...withSel(panes), loading: false, error: null }) }  // skip identical re-push
     else if (state.loading || state.error) set({ loading: false, error: null })
-    health().then((h) => set({ voiceOn: h.voice, voiceChecked: h.checked || [], canSummarize: !!h.summary })).catch(() => {})
+    health().then((h) => set({ voiceOn: h.voice, voiceChecked: h.checked || [], canSummarize: !!h.summary, canCondense: !!h.condense })).catch(() => {})
     showPreview()  // keep the highlighted session's preview current
   } catch (e) { if (gen === fleetGen) set({ loading: false, error: String(e) }) }
 }
@@ -517,7 +518,13 @@ function lastPromptIndex(lines: string[]): number {
   for (let i = lines.length - 1; i >= 0; i--) if (lines[i].startsWith('▶ ')) return i
   return 0
 }
-function renderTurns(turns: Turn[], queued: string[] = []): string[] {
+// `condensed` = the latest reply (everything after the last prompt) in its condensed form, shown in
+// its place and marked ~; `condensing` = one is being written, so say so above the full reply —
+// otherwise you start reading text that is about to be replaced.
+function renderTurns(turns: Turn[], queued: string[] = [], condensed: string | null = null, condensing = false): string[] {
+  let lastUser = -1
+  turns.forEach((t, i) => { if (t.role === 'user') lastUser = i })
+  let noted = false
   const logical: string[] = []
   const add = (l: string) => { if (l === '' && (logical.length === 0 || logical[logical.length - 1] === '')) return; logical.push(l) }
   turns.forEach((t, ti) => {
@@ -527,8 +534,11 @@ function renderTurns(turns: Turn[], queued: string[] = []): string[] {
       // left-shifted block (without the indent, lines 2+ look exactly like the assistant's reply)
       t.text.split('\n').forEach((l, i) => add(i === 0 ? '▶ ' + l : (l.trim() ? '  ' + l : l)))
       add('')                                         // gap before the answer
+    } else if (ti > lastUser && condensed) {
+      if (!noted) { noted = true; condensed.split('\n').forEach((l, i) => add(i === 0 ? '~ ' + l : l)) }
     } else {
-      if (ti > 0 && turns[ti - 1].role === 'assistant') add('') // gap between separate replies
+      if (ti > lastUser && condensing && !noted) { noted = true; add('~ condensing…'); add('') }
+      else if (ti > 0 && turns[ti - 1].role === 'assistant') add('') // gap between separate replies
       t.text.split('\n').forEach(add)                 // paragraph blanks already present
     }
   })
@@ -559,8 +569,50 @@ function buildView() {
   const scroll = state.atBottom ? ms : (userScrolled ? Math.min(state.scroll, cap) : Math.min(lastPromptIndex(lines), cap))
   set({ lines, scroll })
 }
+// --- condensed replies (opt-in): the latest reply of the open session, condensed by the backend ---
+// Kept per session and keyed by the reply's own text, so a transcript that changes without the reply
+// changing (bookkeeping, a re-open) neither asks again nor flips the view back to the full text.
+const condensedCache = new Map<string, { reply: string; text: string | null }>()
+let convoTurns: Turn[] = [], convoQueued: string[] = [], convoWorking = false
+let condensing = false
+const latestReply = (turns: Turn[]) => {
+  let u = -1
+  turns.forEach((t, i) => { if (t.role === 'user') u = i })
+  return turns.slice(u + 1).filter((t) => t.role === 'assistant').map((t) => t.text).join('\n')
+}
+function renderConvo(): string[] {
+  const hit = getCondense() && !convoWorking && state.activePaneN ? condensedCache.get(state.activePaneN) : undefined
+  const ok = hit && hit.reply === latestReply(convoTurns)
+  return renderTurns(convoTurns, convoQueued, ok ? hit.text : null, condensing && !ok)
+}
+// Ask for the condensed reply when it is wanted and not known yet. `pending` answers are picked up by
+// the conversation poll calling this again (every 2.5 s). Same limits as the preview summaries: only
+// a settled session, only a backend that can, and not from a page nobody has touched for 10 minutes.
+let condenseAsk: string | null = null  // session with a request in flight
+function maybeCondense(n: string) {
+  if (state.activePaneN !== n || !getCondense() || !state.canCondense || convoWorking || condenseAsk === n) return
+  const reply = latestReply(convoTurns)
+  if (!reply || condensedCache.get(n)?.reply === reply || Date.now() - lastActivity > SUMMARY_IDLE_MS) return
+  condenseAsk = n
+  const etag = convoEtag
+  paneCondensed(n).then((r) => {
+    if (state.activePaneN !== n || r.etag !== etag) return  // moved on, or the transcript did: the next poll asks afresh
+    if (!r.pending) condensedCache.set(n, { reply, text: r.summary ?? null })
+    const was = condensing
+    condensing = !!r.pending
+    if (!r.pending || !was) { convoLines = renderConvo(); buildView() }
+  }).catch(() => { if (condensing) { condensing = false; convoLines = renderConvo(); buildView() } })
+    .finally(() => { condenseAsk = null })
+}
+// the phone's "condense" switch changed while a session is open: redraw it now
+export function condenseSettingChanged() {
+  if (!state.activePaneN || !state.activeIsClaude) return
+  condensing = false; convoLines = renderConvo(); buildView(); maybeCondense(state.activePaneN)
+}
 function applyConversation(turns: Turn[], working: boolean, queued: string[] = []) {
-  convoLines = renderTurns(turns, queued)
+  convoTurns = turns; convoQueued = queued; convoWorking = working
+  if (working) condensing = false
+  convoLines = renderConvo()
   convoPromptCount = turns.reduce((n, t) => n + (t.role === 'user' ? 1 : 0), 0)
   if (jumpToPrompt) {
     // FIRST open this run: start at the most recent question (read question -> answer)
@@ -675,10 +727,14 @@ export function openPane(n: string, label: string, isClaude: boolean, cwd: strin
     jumpToPrompt = !mem            // first time -> latest question
     pendingRestore = mem ?? null   // returning -> resume where they left off
     convoEtag = null; lastLiveSig = ''; userScrolled = false  // fresh pane -> force a full first fetch
+    convoTurns = []; convoQueued = []; convoWorking = false; condensing = false
     const pull = () => paneConversation(n, convoEtag).then((r) => {
-      if (state.activePaneN !== n || r.notModified) return  // 304 -> nothing changed
-      convoEtag = r.etag
-      applyConversation(r.turns, r.working, r.queued)
+      if (state.activePaneN !== n) return
+      if (!r.notModified) {  // (a 304 means nothing changed)
+        convoEtag = r.etag
+        applyConversation(r.turns, r.working, r.queued)
+      }
+      maybeCondense(n)  // also on a 304: that is how a condensed reply still being written is picked up
     }).catch(() => {})
     pull()
     answersTimer = setInterval(pull, 2500)

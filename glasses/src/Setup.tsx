@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getSource, setSource, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, setHiddenTags } from './config'
+import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getSource, setSource, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense } from './config'
 import { listPanes, health } from './api'
-import { subscribe, getSnapshot, resetForSourceChange, togglePin, previewSettingChanged, workspaceFilterChanged } from './store'
+import { subscribe, getSnapshot, resetForSourceChange, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged } from './store'
 
 // Decode the `tmuxor:<base64>` blob that install.sh prints into a config.
 function decodeBlob(text: string): { base: string; token: string } | null {
@@ -32,6 +32,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [aiSummary, setAi] = useState(getAiSummary())
   const [preview, setPv] = useState(getPreview())
   const [hiddenTags, setHidden] = useState(getHiddenTags())
+  const [condense, setCond] = useState(getCondense())
   const [source, setSrc] = useState(getSource())
   const [sources, setSources] = useState<string[]>([])   // what the backend can serve
   const [defSource, setDefSource] = useState('')          // the backend's own default
@@ -220,6 +221,20 @@ export function Setup({ onSave }: { onSave: () => void }) {
             <p style={{ color: '#6f8a7b', fontSize: 12, margin: '2px 0 0', lineHeight: 1.4 }}>
               Off by default. When on, your backend sends the highlighted session’s latest request and reply to Anthropic and
               the preview shows a one-line summary (marked ~) instead of the raw text. Each summary is a small request billed to your key.
+            </p>
+          </>
+        )}
+
+        {live.canCondense && (
+          <>
+            <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={condense} onChange={(e) => { setCond(e.target.checked); setCondense(e.target.checked); condenseSettingChanged() }} />
+              Condense the latest reply with Claude Haiku (uses your Anthropic API key)
+            </label>
+            <p style={{ color: '#6f8a7b', fontSize: 12, margin: '2px 0 0', lineHeight: 1.4 }}>
+              Off by default. When on, opening a session shows its latest reply as about one screen (marked ~) instead of the
+              full text; earlier replies and anything it asks you to approve stay as they are. Your backend sends that request and
+              reply to Anthropic, once per reply. Switch it off here to read the full reply.
             </p>
           </>
         )}
