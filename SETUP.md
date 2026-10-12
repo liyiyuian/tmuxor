@@ -122,8 +122,9 @@ time, run `sudo tailscale set --operator=$USER` once.)
 
 ### 2c-bis. (Optional) Plan usage on the glasses
 
-The top row of the session list can show how much of your Claude and Codex plans is used, as
-small level bars: for each account the 5-hour window, then the week (taller = more used). The backend only reads
+The top row of the session list can show how much of your Claude and Codex plans is left, as
+small level bars: for each account the 5-hour window, then the week (like a battery: tall =
+plenty left). The backend only reads
 local files for this — it never touches a login token.
 
 - **Codex** needs nothing: the numbers are read from your newest Codex session file.

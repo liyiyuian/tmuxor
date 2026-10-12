@@ -42,11 +42,12 @@ export interface Ctx {
 // A Codex session has a diamond where Claude has a circle.
 const GLYPH: Record<string, string> = { waiting: '!', working: '»', idle: '○', other: '·' }
 // Plan usage, small enough to sit in the top row beside the session counts (it must not cost a row
-// of its own): per account one level bar for the short (5-hour) window and one for the week —
-// taller = more used. ▁▂▃▄▅▆▇█ all exist in the glasses font (■ □ blocks do too, but a meter of
+// of its own): per account one level bar for the short (5-hour) window and one for the week. Like
+// a battery, a bar shows what is LEFT: tall = plenty left, low = nearly used up (the backend
+// reports percent used). ▁▂▃▄▅▆▇█ all exist in the glasses font (■ □ blocks do too, but a meter of
 // them is 80px+; ░ ▮ ▯ are missing). The phone shows the exact percentages.
 const LEVELS = '▁▂▃▄▅▆▇█'
-const level = (pct: number | null) => pct == null ? '·' : LEVELS[Math.min(7, Math.floor(pct / 12.5))]
+const level = (used: number | null) => used == null ? '·' : LEVELS[Math.min(7, Math.floor((100 - used) / 12.5))]
 const short = (label: string, agent: string) => agent === 'codex' ? 'Cx' : label.length <= 2 ? label : label.slice(0, 1).toUpperCase()
 export function usageMini(limits: AppState['limits']): string {
   return limits.map((l) => short(l.label, l.agent) + [l.session, l.week].filter((v, i) => v != null || (i === 1 && l.session == null)).map(level).join('')).join(' ')

@@ -236,8 +236,8 @@ export function Setup({ onSave }: { onSave: () => void }) {
           )}
           <Toggle label="Plan usage" on={usageLine}
             hint={live.limits.length
-              ? live.limits.map((l) => `${l.label} ${[l.session, l.week].map((v) => v == null ? '–' : v + '%').join(' / ')}`).join(' · ') + ' (5-hour / week used)'
-              : 'Small level bars in the top row: how much of your Claude and Codex plans is used.'}
+              ? live.limits.map((l) => `${l.label} ${[l.session, l.week].map((v) => v == null ? '–' : (100 - v) + '%').join(' / ')}`).join(' · ') + ' left (5-hour / week)'
+              : 'Small level bars in the top row: how much of your Claude and Codex plans is left.'}
             onChange={(v) => { setUl(v); setUsageLine(v); loadLimits(true) }} />
           <Toggle label="Wake on finish" hint="Light up when a session finishes or needs you." on={wakeChange}
             onChange={(v) => { setWakeChange(v); setWakeOnChange(v) }} />

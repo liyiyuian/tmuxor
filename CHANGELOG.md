@@ -49,8 +49,8 @@ project memory; this file is the short "what changed" for each build.
   connected. The session list no longer scrolls inside the page (that could trap the page on a
   phone); it shows six and expands in place.
 - **Plan usage in the top row.** Beside the session counts, the top row shows how much of your
-  Claude and Codex plans is used, as small level bars: per account one for the 5-hour window and
-  one for the week (taller = more used). It takes no row of its own; the counts drop their words
+  Claude and Codex plans is left, as small level bars: per account one for the 5-hour window and
+  one for the week (like a battery: tall = plenty left). It takes no row of its own; the counts drop their words
   to make room. The phone shows the exact percentages and has a switch for it. The backend reads
   this from local files only: your newest Codex session, and for Claude a small status-line helper
   (`g2c_usage_hook.py`, see SETUP.md). Needs the updated backend.
