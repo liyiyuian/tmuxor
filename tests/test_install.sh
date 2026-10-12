@@ -23,13 +23,15 @@ cat > $BIN/tailscale <<'SH'
 [ "$1" = status ] && echo '{"Self":{"DNSName":"demo-host.demo-net.ts.net."}}'
 exit 0
 SH
-printf '#!/usr/bin/env bash\nexit 0\n' > $BIN/tmux; cp $BIN/tmux $BIN/claude; chmod +x $BIN/*
+printf '#!/usr/bin/env bash\nexit 0\n' > $BIN/tmux; cp $BIN/tmux $BIN/claude
+printf '#!/usr/bin/env bash\n[ "$1" = -o ] && : > "$2"\nexit 0\n' > $BIN/qrencode   # stands in for the QR tool: "-o file" writes the file
+chmod +x $BIN/*
 for f in install.sh conductor_api.py tmux_conductor.py sources.py; do git -C $NEW show $OLD_REF:$f > $S/old/$f; done
 PASS=0; FAIL=0
 check(){ if eval "$2"; then echo "  PASS  $1"; PASS=$((PASS+1)); else echo "  FAIL  $1"; FAIL=$((FAIL+1)); fi; }
 install(){ # install <home> <source dir> [VAR=value ...]  — non-interactive (setsid: no terminal to prompt on)
   local h=$1 src=$2; shift 2
-  ( cd $S && setsid env HOME=$h XDG_CONFIG_HOME=$h/.config PATH="$BIN:$PATH" TMUXOR_DRYRUN=1 TMUXOR_SRC=$src "$@" bash $src/install.sh ) 2>&1; }
+  ( cd $S && setsid env HOME=$h XDG_CONFIG_HOME=$h/.config PATH="$BIN:$PATH" TMUXOR_DRYRUN=1 TMUXOR_SRC=$src "$@" bash $src/install.sh ) 2>&1; echo "exit status: $?"; }
 backend(){ # start the INSTALLED backend with the INSTALLED settings file, the way systemd would — a clean
   # environment (API keys exported in the tester's own shell must not leak in); echo its pid
   ( exec env -i HOME="$1" PATH="$BIN:$PATH" python3 -c 'import os,sys
@@ -57,7 +59,7 @@ printf 'ANTHROPIC_API_KEY=sk-ant-test-AAAAAAAAAAAAAAAAAAAAAAAA\n# my note\nCONDU
 
 echo "== T2: upgrade — this tree's installer over it (no key given, no port given)"
 install $H $NEW TMUXOR_OPENAI_KEY= > $S/t2.log
-check "new installer finishes" "grep -q 'backend is up' $S/t2.log"
+check "new installer finishes, with exit status 0" "grep -q 'backend is up' $S/t2.log && grep -qx 'exit status: 0' $S/t2.log"
 check "token kept" "[ \"\$(sed -n 's/^CONDUCTOR_TOKEN=//p' $E)\" = '$TOK' ]"
 check "OpenAI key kept" "grep -qx 'OPENAI_API_KEY=sk-test-oldkey-AAAAAAAAAAAAAAAAAAAAAAAA' $E"
 check "port kept ($PORT)" "grep -qx 'CONDUCTOR_API_PORT=$PORT' $E"
@@ -85,7 +87,8 @@ echo "== T4: this tree, fresh install, no OpenAI key"
 H2=$S/h-new; mkdir -p $H2
 install $H2 $NEW CONDUCTOR_API_PORT=$PORT TMUXOR_OPENAI_KEY= > $S/t4.log
 E2=$H2/.config/tmux-conductor.env; TOK2=$(sed -n 's/^CONDUCTOR_TOKEN=//p' $E2)
-check "fresh install finishes and prints the setup code" "grep -q 'backend is up' $S/t4.log && grep -q 'tmuxor:ey' $S/t4.log"
+check "fresh install finishes with exit status 0 and prints the setup code" "grep -q 'backend is up' $S/t4.log && grep -q 'tmuxor:ey' $S/t4.log && grep -qx 'exit status: 0' $S/t4.log"
+check "the saved setup QR (it holds the token) is readable by its owner only" "[ \$(stat -c %a $H2/tmuxor-setup-qr.png) = 600 ]"
 check "fresh settings: a generated token, loopback, the port, the herdr path, no OpenAI key" "grep -q '^CONDUCTOR_TOKEN=tmxr_' $E2 && grep -qx 'CONDUCTOR_BIND=127.0.0.1' $E2 && grep -qx 'CONDUCTOR_API_PORT=$PORT' $E2 && grep -q '^CONDUCTOR_HERDR_BIN=' $E2 && ! grep -q OPENAI_API_KEY $E2"
 check "the setup code carries the tailnet address and this token" "python3 -c 'import base64,json,re,sys; b=re.search(r\"tmuxor:(\\S+)\", open(sys.argv[1]).read()).group(1); d=json.loads(base64.urlsafe_b64decode(b)); sys.exit(0 if d==dict(base=\"https://demo-host.demo-net.ts.net\", token=sys.argv[2]) else 1)' $S/t4.log $TOK2"
 P=$(backend $H2); PIDS+=($P); waitup

@@ -8,8 +8,10 @@ G2C puts the Claude Code and Codex sessions running in **[Herdr](https://herdr.d
 agent-aware terminal multiplexer) onto your glasses, so your running work stays
 trackable and hands-free. Each Herdr workspace is a project **tag**, so
 you tell sessions apart at a glance — see which one needs you, read its real prompts and
-replies, and **continue** it by voice — over your own private Tailscale network. Nothing
-is sent to anyone but your own machine.
+replies, and **continue** it by voice — over your own private Tailscale network. The app talks
+only to your own machine; nothing goes to the app's developer. Two optional features use your own
+API keys from that machine: voice is transcribed by OpenAI, and AI summaries (off by default) are
+written by Anthropic.
 
 This repo is the **backend** (a small stdlib-Python control plane that runs on your
 computer) plus the **glasses app source**. The glasses app itself installs from the
@@ -21,7 +23,7 @@ Even Hub.
 
 | | |
 |---|---|
-| ![Fleet list](store-assets/screenshots/01-fleet-list.png)<br>**Fleet** — your sessions, sorted by what needs you (! waiting · ● working · ○ idle). | ![Conversation](store-assets/screenshots/02-conversation.png)<br>**Conversation** — real prompts + replies, opening at the latest question. |
+| ![Fleet list](store-assets/screenshots/01-fleet-list.png)<br>**Fleet** — your sessions in Herdr's order, with the highlighted one's latest reply beside the list (! needs you · » working · ● finished · ○ idle). | ![Conversation](store-assets/screenshots/02-conversation.png)<br>**Conversation** — real prompts + replies, opening at the latest question. |
 | ![Approve command](store-assets/screenshots/03-approve-command.png)<br>**Approve** — read the full command on the glasses, then tap Yes/No. | ![New session](store-assets/screenshots/04-new-session.png)<br>**New session** — pick a project tag, then speak the folder. |
 
 *576×288 monochrome-green glasses display. Images use demo data.*
@@ -86,7 +88,8 @@ replies — everything else happens on the glasses with **three gestures**, reas
   opening each one. *Optional:* add your own Anthropic API key to the backend and switch on
   **AI summaries** in the app, and that preview becomes a one-line Claude Haiku summary (off by
   default; it sends that session's latest exchange to Anthropic under your key).
-- **Pinning** — keep the sessions you care about at the top, marked **★**. Tap ★ next to a
+- **Pinning** — keep the sessions you care about at the top (their workspace letter is shown in
+  CAPITALS in the list). Tap ★ next to a
   session on your phone. Or on the glasses: highlight it in the session list, **tap then
   press-and-hold** to open the system menu, and choose **Pin / unpin session** (needs Even app
   2.2.10+). Pins are saved on your phone. The same menu has **Next that needs you** (jumps down
@@ -116,9 +119,11 @@ in the background — it's the Bluetooth bridge to the glasses.
 This backend **runs commands on your machine** — treat it as a remote-control surface:
 
 - Binds **loopback only** (`127.0.0.1`); reached over the tailnet via `tailscale serve`.
-- **Token required** on every request (constant-time check); it refuses to start without one.
-- The token lives only in `~/.config/tmux-conductor.env` (mode `600`). **Never share it or
-  commit it** — anyone with it can run commands as you.
+- **Token required** on every request except the bare `/api/health` reachability check, which
+  reveals nothing without it (constant-time check); the backend refuses to start without a token.
+- The token lives in `~/.config/tmux-conductor.env` (mode `600`) and, if `qrencode` is installed,
+  inside the setup QR the installer saves as `~/tmuxor-setup-qr.png` (also mode `600` — delete it
+  once you are set up). **Never share it or commit it** — anyone with it can run commands as you.
 
 Do not expose this backend to the public internet.
 
@@ -138,3 +143,7 @@ See `glasses/` and the project notes.
 ## License
 
 **MIT** — see [LICENSE](LICENSE).
+
+## Feedback
+
+Want a new feature, or found a bug? Reach out — open an issue on this repository.

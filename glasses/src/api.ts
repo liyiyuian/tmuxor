@@ -50,8 +50,8 @@ export async function listPanes(claudeOnly = true): Promise<Pane[]> {
 // gated behind auth so an unauthenticated tailnet peer can't probe arbitrary files).
 const modelQ = (m?: string) => !!m && `model=${encodeURIComponent(m)}`
 const keyPathQ = () => { const p = getOpenaiKeyPath(); return p ? `keypath=${encodeURIComponent(p)}` : '' }
-// `sources` = which backends this machine can serve (authed-only); `source` = its default.
-// The phone shows a picker only when >1 is offered; absent (older backend) => tmux only.
+// `sources` = which backends this machine can serve (authed-only); `source` = its default (the
+// phone no longer offers a choice between them).
 // `summary` = the backend has an Anthropic key and can write AI summaries (it only does when asked).
 // The models the backend offers, with list prices: Anthropic for summaries / condensed replies
 // (USD per million tokens in / out), OpenAI speech-to-text for voice (USD per minute of audio).

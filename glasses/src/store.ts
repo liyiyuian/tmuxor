@@ -210,29 +210,47 @@ function pickModel(kind: 'summary' | 'voice'): string {
 const SAMPLE = 'Build is slow because the cache key includes the timestamp; tests pass and 2 files changed.'
 const AVG_CHAR_PX = getTextWidth(SAMPLE) / SAMPLE.length
 const summaryBudget = (rows: number) => Math.max(60, Math.floor((rows * PREVIEW_PX / AVG_CHAR_PX - 3) * 0.88 / 10) * 10)
-// the phone picked another model: what was written by the old one is no longer what was asked for
-export function modelSettingChanged() {
+// AI summary switched on or off, or another model chosen: what the preview cache holds was written
+// under the old setting, so go back to the raw reply and ask afresh. (Without this an idle session
+// kept showing its old summary after the switch was turned off, until its transcript changed.)
+export function summarySettingChanged() {
   for (const c of previewCache.values()) { c.sumFor = undefined; c.lines = [...c.head, ...c.raw] }
-  condensedCache.clear()
-  previewSettingChanged(); condenseSettingChanged()
+  previewSettingChanged()
+}
+export function modelSettingChanged() { condensedCache.clear(); summarySettingChanged(); condenseSettingChanged() }
+// a short notice in the top row (list, reading view, question view) for a moment
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+function flash(msg: string, ms = 2500, extra: Partial<AppState> = {}) {
+  clearTimeout(flashTimer)
+  set({ ...extra, flash: msg })
+  flashTimer = setTimeout(() => set({ flash: '' }), ms)
+}
+// A question (a permission prompt, an AskUserQuestion) is on the session's screen while you are
+// speaking or reviewing a reply. What you said must NOT be typed into it: in a prompt, Enter
+// confirms the highlighted option, so a reply could approve a command you never saw. Nothing is
+// sent; you are taken to the question. (Answering a question's own free-text field is the one case
+// where typing into it is the point.) Returns true when it stepped in.
+function questionInTheWay(): boolean {
+  if (!state.menu || state.menuFreeText || !state.activePaneN || state.phase === 'view') return false
+  stopMic(); pcm = []
+  set({ phase: 'view', menuPhase: 'read', busy: false, draft: '', draftKind: null, typingText: '', status: '' })
+  flash('reply not sent: answer this first', 5000)
+  return true
 }
 // A setting picked from the glasses menu: apply it exactly as the phone's switch does, say what it
 // is now in the top row for a moment (most of these change nothing you can see at once), and let
 // the phone page, if it is open, show the new value.
-let flashTimer: ReturnType<typeof setTimeout> | undefined
 export function menuSetting(kind: 'preview' | 'summary' | 'usage' | 'wake' | 'sleep') {
   let msg: string
   if (kind === 'preview') { const v = !getPreview(); setPreview(v); previewSettingChanged(); msg = `Preview ${v ? 'on' : 'off'}` }
   else if (kind === 'summary') {
     if (!state.canSummarize) msg = 'AI summary: no API key on the backend'
-    else { const v = !getAiSummary(); setAiSummary(v); previewSettingChanged(); msg = `AI summary ${v ? 'on' : 'off'}${v && !getPreview() ? ' (preview is off)' : ''}` }
+    else { const v = !getAiSummary(); setAiSummary(v); summarySettingChanged(); msg = `AI summary ${v ? 'on' : 'off'}${v && !getPreview() ? ' (preview is off)' : ''}` }
   }
   else if (kind === 'usage') { const v = !getUsageLine(); setUsageLine(v); loadLimits(true); msg = `Plan usage ${v ? 'on' : 'off'}` }
   else if (kind === 'wake') { const v = !getWakeOnChange(); setWakeOnChange(v); msg = `Wake on finish ${v ? 'on' : 'off'}` }
   else { const v = getIdleSleepSec() ? 0 : 30; setIdleSleepSec(v); msg = v ? 'Screen sleep 30 s' : 'Screen sleep never' }
-  clearTimeout(flashTimer)
-  set({ flash: msg, settingsRev: state.settingsRev + 1 })
-  flashTimer = setTimeout(() => set({ flash: '' }), 2500)
+  flash(msg, 2500, { settingsRev: state.settingsRev + 1 })
 }
 function showPreview(moved = false) {
   if (!getPreview() || hostGone) return  // turned off on the phone, or this page is detached: no panel, no downloads, no summaries
@@ -301,8 +319,8 @@ function showPreview(moved = false) {
   }, moved ? SETTLE_MS : 0)
 }
 
-// Panes that went working -> idle and haven't been opened yet: they stay pinned in a top "done"
-// band (labeled », above plain idle) until the user opens them (openPane clears the mark). Dropped
+// Panes that went working -> idle and haven't been opened yet: they are marked ● and come to the
+// top of the list (below pinned ones) until the user opens them (openPane clears the mark). Dropped
 // automatically once a pane is no longer idle (worked again / now needs input) or has vanished.
 const finished = new Set<string>()
 // Pinned sessions form a band at the very top (in the multiplexer's order inside it), then the rest.
@@ -614,7 +632,7 @@ const paneMem = new Map<string, { scroll: number; atBottom: boolean; promptCount
 const CONVO_TURNS = 60, CONVO_MORE = 180
 let convoStart: number | null = null
 let pullConvo: (() => void) | null = null   // fetch the open session's conversation now
-let convoPrepend: { len: number; scroll: number } | null = null  // earlier messages are being loaded: keep the view where it was
+let convoPrepend: { len: number; scroll: number; prevStart: number } | null = null  // earlier messages are being loaded: keep the view where it was
 const EARLIER = '▲ earlier messages: swipe up to load'
 let pendingRestore: { scroll: number; atBottom: boolean; promptCount: number; scrolledAway: boolean } | null = null
 let convoPromptCount = 0 // # of user questions in the current conversation (for new-question detection)
@@ -859,6 +877,7 @@ function updateLive(text: string) {
     }
   }
   set(patch)
+  if (menu) questionInTheWay()   // it came up while you were speaking or reviewing a reply: show it, send nothing
   if (reRender) buildView()
 }
 
@@ -879,8 +898,10 @@ export function openPane(n: string, label: string, isClaude: boolean, cwd: strin
     convoTurns = []; convoQueued = []; convoWorking = false; condensing = false; showFull = false
     convoStart = mem?.start ?? null; convoPrepend = null
     // `from` keeps the loaded part anchored; `turns` is what the backend falls back to if that turn no longer exists
-    const pull = () => paneConversation(n, convoEtag, { turns: CONVO_TURNS, ...(convoStart == null ? {} : { from: convoStart }) }).then((r) => {
-      if (state.activePaneN !== n) return
+    const pull = () => { const asked = convoStart; return paneConversation(n, convoEtag, { turns: CONVO_TURNS, ...(asked == null ? {} : { from: asked }) }).then((r) => {
+      // an answer to a question that is no longer the one being asked (the loaded part was moved
+      // while it was on its way, e.g. by "load earlier") must not be applied
+      if (state.activePaneN !== n || asked !== convoStart) return
       if (!r.notModified) {  // (a 304 means nothing changed)
         convoEtag = r.etag
         convoStart = r.start ?? 0
@@ -888,13 +909,16 @@ export function openPane(n: string, label: string, isClaude: boolean, cwd: strin
         applyConversation(r.turns, r.working, r.queued, r.prompts)
       }
       maybeCondense(n)  // also on a 304: that is how a condensed reply still being written is picked up
-    }).catch(() => { if (convoPrepend) { convoPrepend = null; set({ status: '' }) } })
+    }).catch(() => {
+      // loading earlier messages failed: put the start back, so the marker stays and it can be tried again
+      if (state.activePaneN === n && convoPrepend && asked === convoStart) { convoStart = convoPrepend.prevStart; convoPrepend = null; set({ status: '' }) }
+    }) }
     pullConvo = pull
     pull()
     // every 2.5 s while the session is working (or a condensed reply is being written); a session
     // that is sitting idle changes only when you send something, so look half as often
     let tick = 0
-    answersTimer = setInterval(() => { if (convoWorking || state.working || condensing || ++tick % 2 === 0) pull() }, 2500)
+    answersTimer = setInterval(() => { if (!convoPrepend && (convoWorking || state.working || condensing || ++tick % 2 === 0)) pull() }, 2500)
     es = streamPane(n, (t) => { if (state.activePaneN === n) updateLive(t) })
   } else {
     paneScreen(n, 80).then((t) => { if (state.activePaneN === n) applyScreen(t) }).catch(() => {})
@@ -906,7 +930,8 @@ export function closePane() {
   // scrolled anywhere in this view; a reopen then RESUMES there. If they never scrolled (just
   // read the jumped-to latest prompt), a reopen re-anchors on the latest prompt.
   if (state.activePaneN && state.activeIsClaude) {
-    paneMem.set(state.activePaneN, { scroll: state.scroll, atBottom: state.atBottom, promptCount: convoPromptCount, scrolledAway: userScrolled, start: convoStart })
+    // (closed while earlier messages were still loading: remember the part that IS loaded)
+    paneMem.set(state.activePaneN, { scroll: state.scroll, atBottom: state.atBottom, promptCount: convoPromptCount, scrolledAway: userScrolled, start: convoPrepend ? convoPrepend.prevStart : convoStart })
     // Closing counts as having SEEN this session. The fleet poll is paused while a pane is open, so
     // prevStatus still holds the pre-open value ('working'); without this, the first post-close poll
     // would see working->idle for a completion the user just watched and false-pin it in the done
@@ -915,7 +940,8 @@ export function closePane() {
     prevStatus.set(state.activePaneN, state.working ? 'working' : 'idle')
     if (finished.delete(state.activePaneN)) repaintPanes()
   }
-  closeStream(); stopAnswers(); stopMic(); set({ activePaneN: null, phase: 'view' })
+  convoPrepend = null
+  closeStream(); stopAnswers(); stopMic(); set({ activePaneN: null, phase: 'view', status: '' })
   showPreview()  // back on the list: show what the session we just left says now
 }
 
@@ -951,7 +977,7 @@ let scrollStep = SCROLL_BASE
 export function scrollDetail(dir: 'up' | 'down') {
   // at the very top with earlier messages not loaded yet: fetch them (the view stays on this line)
   if (dir === 'up' && state.scroll === 0 && convoStart && !convoPrepend && state.activePaneN && state.activeIsClaude) {
-    convoPrepend = { len: convoLines.length, scroll: state.scroll }
+    convoPrepend = { len: convoLines.length, scroll: state.scroll, prevStart: convoStart }
     convoStart = Math.max(0, convoStart - CONVO_MORE); convoEtag = null
     set({ status: 'loading earlier…' })
     pullConvo?.()
@@ -1044,7 +1070,14 @@ export async function pickMenuOption(targetIdx: number) {
   } else {
     // plain single-select (permission Yes/No): the NUMBER then Enter — absolute, so it can never
     // approve the WRONG option regardless of cursor position.
-    try { await sendKeysSpaced(n, [String(opt?.num ?? targetIdx + 1), 'Enter']) } catch { /* SSE will resync */ }
+    try {
+      await sendKeysSpaced(n, [String(opt?.num ?? targetIdx + 1), 'Enter'])
+      // That prompt is answered. Forget it, so whatever the session shows next — even another prompt
+      // asking the very same "Do you want to proceed?" — opens in READ before it can be picked.
+      // (READ used to reopen only when the question's wording changed.)
+      lastLiveSig = ''
+      set({ menu: null, menuPhase: 'read' })
+    } catch { /* SSE will resync */ }
   }
 }
 // AskUserQuestion: advance to the next question/tab. Right cycles the question tabs — but ONLY from a
@@ -1160,6 +1193,7 @@ async function handleTranscript(t: string) {
 export async function sendNow() {
   const n = state.activePaneN
   if (!n || !state.draft) return
+  if (questionInTheWay()) return
   set({ busy: true, status: 'sending…' })
   try {
     await sendToPane(n, state.draft, true)
@@ -1229,6 +1263,7 @@ export async function submitTypedInput() {
   } else if (state.activePaneN && state.phase === 'listening') {
     if (state.activeIsClaude) {
       const n = state.activePaneN
+      if (questionInTheWay()) return
       set({ busy: true, status: 'sending…' })
       try { await sendToPane(n, t, true); set({ phase: 'view', atBottom: true, working: true, busy: false, status: '', draft: '', draftKind: null }); buildView() }
       catch { set({ busy: false, status: 'send failed — try again' }) }

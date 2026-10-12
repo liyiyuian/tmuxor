@@ -21,7 +21,19 @@ Everything since 1.0.40, including 1.0.41, which was only a private test build.
   something new to read: what you said.
 - **Installer: upgrading keeps your settings.** Running `install.sh` again no longer drops your
   OpenAI key when you press Enter at its prompt, keeps a custom port, and restarts the service so
-  it runs the new files.
+  it runs the new files. The setup QR it saves (which contains your token) is now readable by you
+  only.
+- **Fix: a reply could be typed into a question you never saw.** If the agent raised a permission
+  prompt while you were speaking or reviewing your reply, the glasses stayed on that screen and a
+  tap sent your words into the prompt — where Enter confirms the highlighted option. Now the
+  question takes over at once ("reply not sent: answer this first") and nothing is sent.
+- **Fix: a second prompt could open ready to pick.** After you answered one permission prompt, the
+  next one asking the same "Do you want to proceed?" could appear already on the options, one tap
+  from approving a command you had not read. Every new prompt now opens on its text first.
+- **Fix: summaries could stay missing after a hiccup.** One rate-limited or failed model call left
+  the session — and any you looked at in the next minute — without a summary until it changed.
+  Needs the updated backend.
+- **Fix: turning AI summary off kept showing summaries** for sessions that had not changed since.
 - **More in the glasses menu.** The system menu (tap, then hold) now has **Next that needs you**
   — in the session list it jumps to the next session waiting on you below the highlighted row, and
   with none below, back to the top — and **Condensed / full reply**, which switches an open
@@ -58,15 +70,13 @@ Everything since 1.0.40, including 1.0.41, which was only a private test build.
   needs you; a Codex session uses **◇** and **◆**. (Working and finished swapped marks.)
 - **Herdr only.** G2C is now built and documented for Herdr. The phone no longer offers a backend
   picker, and the backend reads Herdr by default.
-- **Settings on one page.** "Connection & settings" is always open, and the list of sessions to
-  pin (★) now lives inside it.
 - **Installer fixes.** `install.sh` now also downloads `sources.py` (without it a fresh install could
   not start), checks for Herdr instead of tmux, tells the service where the `herdr` binary is, and
   keeps lines you added to the settings file (such as `ANTHROPIC_API_KEY`) when it is re-run.
 - **Choose which workspaces to show.** The phone's settings list your workspaces with a tick each
   (all on by default); untick one and its sessions are left off the glasses.
 - **Optional condensed replies (off by default).** A second switch in the phone's settings,
-  "Condense the latest reply with Claude Haiku": opening a session then shows its latest reply as
+  "Condensed replies": opening a session then shows its latest reply as
   about one screen (marked `＊`), leading with anything it is waiting on you for and keeping the
   exact names, numbers and commands. While it is being written the view says "＊ condensing…" above
   the full reply. Earlier replies, short replies and approval prompts are never condensed; switch it

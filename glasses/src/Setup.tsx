@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getAiSummary, setAiSummary, getSeenNews, setSeenNews, getSummaryModel, setSummaryModel, getVoiceModel, setVoiceModel, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense, getUsageLine, setUsageLine } from './config'
 import { listPanes, getUsage, type Usage, type UsageRow, type ModelChoice } from './api'
-import { subscribe, getSnapshot, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged, modelSettingChanged, loadLimits } from './store'
+import { subscribe, getSnapshot, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged, modelSettingChanged, summarySettingChanged, loadLimits } from './store'
 
 // Decode the `tmuxor:<base64>` blob that install.sh prints into a config.
 function decodeBlob(text: string): { base: string; token: string } | null {
@@ -251,7 +251,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
             onChange={(v) => { setPv(v); setPreview(v); previewSettingChanged() }} />
           {live.canSummarize && preview && (
             <Toggle label="AI summary" hint="A short summary, sized to fit the preview, instead of the raw reply. Sends that request and reply to Anthropic with your own key." on={aiSummary}
-              onChange={(v) => { setAi(v); setAiSummary(v) }} />
+              onChange={(v) => { setAi(v); setAiSummary(v); summarySettingChanged() }} />
           )}
           {live.canCondense && (
             <Toggle label="Condensed replies" hint="Open a session to its latest reply cut to one screen; the glasses menu switches to the full reply. Sends that request and reply to Anthropic with your own key." on={condense}
@@ -333,7 +333,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
         </ul>
       </details>
 
-      {/* which build this is — the version number is held between submissions, so it can't say */}
+      {/* which build this is — test builds between uploads share a version number, so it alone can't say */}
       <p style={{ color: '#6f8a7b', fontSize: 11, margin: '18px 0 0', textAlign: 'center' }}>G2C {__APP_VERSION__} · build {__BUILD__}</p>
     </div>
   )

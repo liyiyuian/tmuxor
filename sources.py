@@ -7,15 +7,16 @@ glasses drive. Two implementations behind ONE small interface:
                   replacement that reports agent state (idle/working/blocked/done)
                   natively instead of us inferring it from title glyphs.
 
-conductor_api.py resolves a source PER REQUEST (default tmux) and calls it for
+conductor_api.py resolves a source PER REQUEST (default herdr) and calls it for
 every multiplexer-touching operation. The Claude transcript layer
 (resolve_session / transcript_candidates / read_conversation in tmux_conductor)
 is multiplexer-agnostic — it only needs a pane's pid + cwd — so BOTH sources
 reuse it unchanged.
 
 Design rule: the tmux path must behave EXACTLY as before. TmuxSource is a thin
-delegator to the unchanged tmux_conductor functions, and an unconfigured backend
-(no ?source=, no CONDUCTOR_SOURCE) always resolves to tmux.
+delegator to the unchanged tmux_conductor functions. An unconfigured backend
+(no ?source=, no CONDUCTOR_SOURCE) resolves to herdr, or to tmux when herdr is
+not installed.
 """
 import glob
 import json

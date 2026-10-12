@@ -19,8 +19,7 @@ const stripDeadUrls: Plugin = {
 
 export default defineConfig({
   // the build's own version and build time: an error report says which build it came from, and the
-  // phone screen shows it — the version alone can't tell two builds apart while it is held between
-  // submissions
+  // phone screen shows it — the version alone can't tell apart two test builds made between uploads
   define: {
     __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync('app.json', 'utf8')).version),
     __BUILD__: JSON.stringify(new Date().toLocaleString('sv-SE').slice(5, 16)),  // "MM-DD HH:mm", local time

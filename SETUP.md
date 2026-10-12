@@ -7,7 +7,7 @@ Tailscale network.
 
 It has two halves:
 
-- **Backend** (`conductor_api.py` + `tmux_conductor.py`) — runs on **your computer**, reads
+- **Backend** (`conductor_api.py`, `tmux_conductor.py`, `sources.py`) — runs on **your computer**, reads
   your Herdr sessions, and exposes a small token-authenticated HTTP API.
 - **Glasses app** (`glasses/`) — an Even Hub plugin (web app) you install on your glasses;
   it talks to your backend over Tailscale.
@@ -27,8 +27,8 @@ On the **computer** that runs your sessions:
 - **Tailscale** installed and logged in.
 - *(Optional)* an **OpenAI API key** — enables voice→text via Whisper. Without it, voice is
   off and you type your replies on the phone instead; everything else still works.
-- *(Optional)* an **Anthropic API key** — only used to translate speech→shell command for
-  non-Claude (plain shell) panes. Claude panes don't need it.
+- *(Optional)* an **Anthropic API key** — only for the AI summaries and condensed replies, which
+  are off until you turn them on in the app. Everything else works without it.
 - **Node 18+ / npm** (only to build the glasses app once).
 
 On the **phone**:
@@ -53,15 +53,19 @@ CONDUCTOR_TOKEN=PASTE_A_LONG_RANDOM_TOKEN_HERE
 # REQUIRED for voice — OpenAI Whisper transcription
 OPENAI_API_KEY=sk-...
 
-# OPTIONAL — your own Anthropic key. Used for plain shell panes (speech -> shell command) and,
-# only if you turn it on in the app, for AI summaries in the list preview (Claude Haiku).
+# OPTIONAL — your own Anthropic key: only if you turn them on in the app, for AI summaries in
+# the list preview and condensed replies (Claude Haiku unless you choose another model).
 ANTHROPIC_API_KEY=sk-ant-...
 
-# OPTIONAL overrides (defaults shown)
-CONDUCTOR_BIND=127.0.0.1          # keep loopback; expose via Tailscale (below)
-# CONDUCTOR_LAUNCH_CMD=claude     # command run in a new pane when you create a session
+# OPTIONAL overrides (defaults shown). Keep comments on their OWN lines: systemd reads everything
+# after the = as the value.
+# keep loopback; expose via Tailscale (below)
+CONDUCTOR_BIND=127.0.0.1
+# command run in a new pane when you create a session
+# CONDUCTOR_LAUNCH_CMD=claude
 # CONDUCTOR_API_PORT=8790
-# CONDUCTOR_HERDR_BIN=            # full path to the herdr binary, if not on the service PATH
+# full path to the herdr binary, if it is not on the service's PATH
+# CONDUCTOR_HERDR_BIN=
 EOF
 chmod 600 ~/.config/tmux-conductor.env
 ```
@@ -190,7 +194,8 @@ the URL/token on-device in step 3d.)
 
 ### 3d. Connect it
 
-Open G2C on the phone. On first launch the **Connection & settings** section is open — enter:
+Open G2C on the phone. On first launch the **Connection** section is open. Paste the setup code
+the installer printed and tap **Connect** — or open **Enter it by hand** and enter:
 - **Backend URL**: your `https://<host>.<tailnet>.ts.net`
 - **Access token**: your `CONDUCTOR_TOKEN`
 
@@ -205,13 +210,13 @@ background — it's the Bluetooth bridge to the glasses.
 Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe = move/scroll):
 
 - **Session list** — your Claude and Codex sessions in Herdr's own order (workspaces, then
-  tabs), pinned (**★**) first; a session that finished since you last opened it comes up to the
+  tabs), pinned first (their workspace letter in CAPITALS); a session that finished since you last opened it comes up to the
   top until you open it. **○** idle, **»** working, **●** finished since you last opened
   it, **!** needs you; a Codex session uses **◇** and **◆**. A session is named after its Claude
   session name, or its Herdr tab for Codex. Swipe to move, tap to open,
   double-tap to exit. The last row is **＋ new session** (one swipe up from the top). The right
   two thirds of the screen previews the highlighted session's last prompt and the end of its reply
-  (switch it off in **Connection & settings** if you prefer the plain list). The same settings
+  (switch it off under **On the glasses** on the phone if you prefer the plain list). The same settings
   let you untick a workspace to leave its sessions off the glasses, and (with an Anthropic key on
   the backend) switch on **condensed replies**: the latest reply of an opened session shown as
   about one screen, marked `＊`.
@@ -252,7 +257,8 @@ elsewhere, adjust `PROJECT_ROOTS` / `SESSION_DIRS` in `tmux_conductor.py`.
 
 ## 6. Security model
 
-- **Token required** in every mode; the backend won't start without `CONDUCTOR_TOKEN`.
+- **Token required** in every mode; the backend won't start without `CONDUCTOR_TOKEN`. Only the
+  bare `/api/health` reachability check answers without it, and it reveals nothing.
 - **Loopback bind + Tailscale serve** — reachable only from your own tailnet, over HTTPS.
 - Do **not** set `CONDUCTOR_BIND=0.0.0.0` and do **not** port-forward it.
 - The `.ehpk` you submit publicly must **not** contain your URL/token — enter them on-device.

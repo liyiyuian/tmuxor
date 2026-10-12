@@ -140,13 +140,15 @@ ok "G2C backend is up."
 c  "Backend URL : $URL"
 c  "Token       : $TOKEN"
 echo
-c  "On your phone: open G2C → Connection & settings → 'Paste config'. Paste this line:"
+c  "On your phone: open G2C → Connection → 'Setup code'. Paste this line and tap Connect:"
 echo "  $BLOB"
 if command -v qrencode >/dev/null; then
   echo
   c "(or scan this QR with your phone's camera to copy the code, then paste it)"
   qrencode -t ANSIUTF8 "$BLOB"
-  qrencode -o "$HOME/tmuxor-setup-qr.png" "$BLOB" 2>/dev/null && c "(QR also saved to ~/tmuxor-setup-qr.png)"
+  # the code carries your token: keep the saved copy readable by you only
+  ( umask 177; qrencode -o "$HOME/tmuxor-setup-qr.png" "$BLOB" 2>/dev/null ) && chmod 600 "$HOME/tmuxor-setup-qr.png" \
+    && c "(QR also saved to ~/tmuxor-setup-qr.png — it contains your token; delete it once you are set up)"
 fi
 echo
-[ -z "$DNS" ] && warn "couldn't read your Tailscale domain — run 'tailscale status' and use your https://<host>.ts.net URL."
+if [ -z "$DNS" ]; then warn "couldn't read your Tailscale domain — run 'tailscale status' and use your https://<host>.ts.net URL."; fi

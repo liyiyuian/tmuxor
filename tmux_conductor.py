@@ -414,14 +414,16 @@ def _codex_line(raw, turns):
 
 
 # A transcript only grows (JSONL, appended to), and a busy session appends to it constantly. Reading
-# and parsing the whole file again on every change cost 0.3-2 s of CPU per poll on the 25-160 MB
+# and parsing the whole file again on every change cost 0.15-0.8 s of CPU per poll on the 26-164 MB
 # transcripts of long sessions (measured 2026-10-12) — every 2.5 s while such a session was open on
 # the glasses. So remember, per file, how far it has been read and what that produced, and on a
 # change read only the new bytes. A file that shrank, was replaced, or no longer continues where the
 # last read stopped is read afresh. A Codex transcript is first read from its last CODEX_TAIL_BYTES.
-_convo_state = {}                 # path -> {key, ino, head, offset, turns, queue, queued, codex}
-_convo_locks = {}                 # path -> lock: two requests for one transcript must not both append
-_convo_guard = threading.Lock()
+_convo_state = {}                 # path -> {key, ino, head, offset, turns, queue, queued, codex}; most recently used last
+_convo_locks = {}                 # path -> lock: two requests for one transcript must not both append. Never
+                                  # removed (a lock is tiny; removing one while a request waits on it would let
+                                  # a second request take a NEW lock for the same transcript and append twice)
+_convo_guard = threading.Lock()   # for the two dicts themselves (order changes and eviction)
 
 
 def _parse_conversation(jsonl_path):
@@ -435,6 +437,9 @@ def _parse_conversation(jsonl_path):
         key = (st.st_mtime_ns, st.st_size)
         s = _convo_state.get(path)
         if s and s["key"] == key:
+            with _convo_guard:                    # still in use: keep it away from eviction
+                if _convo_state.pop(path, None) is not None:
+                    _convo_state[path] = s
             return s["turns"], s["queued"]
         with open(path, "rb") as f:
             head = f.read(64)
@@ -459,13 +464,11 @@ def _parse_conversation(jsonl_path):
         s.update(key=key, offset=s["offset"] + end, queue=queue,
                  turns=(s["turns"] + turns) if turns else s["turns"],
                  queued=[q for q in (_clean_prompt(x) for x in queue) if q])
-        _convo_state.pop(path, None)
-        _convo_state[path] = s                    # most recently used last
-        while len(_convo_state) > 64:             # bound memory: transcripts come and go over the service's lifetime
-            old = next(iter(_convo_state))
-            _convo_state.pop(old)
-            with _convo_guard:
-                _convo_locks.pop(old, None)
+        with _convo_guard:
+            _convo_state.pop(path, None)
+            _convo_state[path] = s                # most recently used last
+            while len(_convo_state) > 64:         # bound memory: transcripts come and go over the service's lifetime
+                _convo_state.pop(next(iter(_convo_state)), None)
         return s["turns"], s["queued"]
 
 

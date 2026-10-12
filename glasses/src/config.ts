@@ -42,9 +42,9 @@ export function getOpenaiKeyPath(): string { return localStorage.getItem(LS_OPEN
 export function getIdleSleepSec(): number { return Math.max(0, Math.floor(Number(localStorage.getItem(LS_IDLE_SEC) || '0')) || 0) }
 // Wake the blanked HUD when a session changes state (working -> done / needs-input). Default on.
 export function getWakeOnChange(): boolean { return localStorage.getItem(LS_WAKE_CHANGE) !== '0' }
-// Which backend hosts the sessions: '' = let the backend use its configured default (tmux);
-// otherwise 'tmux' | 'herdr'. Sent as ?source= on every backend call; the backend gates on
-// what it actually has (advertised via /api/health) and falls back to its default if absent.
+// Which backend hosts the sessions: '' = let the backend use its default (Herdr); otherwise a
+// choice saved by an older build that still had a picker ('tmux' | 'herdr'). Sent as ?source= on
+// every backend call; the backend falls back to its default if it cannot serve that one.
 export function getSource(): string { return localStorage.getItem(LS_SOURCE) || '' }
 // Condensed replies in the reading view. OFF unless turned on, for the same reasons as getAiSummary.
 export function getCondense(): boolean { return localStorage.getItem(LS_CONDENSE) === '1' }

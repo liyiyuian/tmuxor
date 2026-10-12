@@ -16,7 +16,7 @@ this folder. Agent supplies the text/images; you do the portal steps.
 | **App name** | `G2C` |
 | **Subtitle / tagline** (≤50 chars) | `Your Claude Code & Codex sessions, hands-free` |
 | **Category** | `Productivity / Developer Tools` |
-| **Description** (≤2000 chars) | the **DESCRIPTION** section of **`listing.txt`** (1,985 chars) |
+| **Description** (≤2000 chars) | the **DESCRIPTION** section of **`listing.txt`** (1,966 chars) |
 | **Privacy policy** | the **PRIVACY POLICY** section of **`listing.txt`** |
 | **Terms & conditions** | the **TERMS & CONDITIONS** section of **`listing.txt`** |
 | **App icon** | **`../glasses/icon-512.png`** |

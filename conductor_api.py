@@ -23,8 +23,10 @@ Endpoints:
   GET  /api/events/<n>[?lines=40]                 -> SSE stream of the pane screen on change
 
 Run:  python conductor_api.py
-Bind: defaults to your Tailscale IP (tailscale ip -4), port 8790.
-Env:  CONDUCTOR_TOKEN (optional bearer), CONDUCTOR_API_PORT, CONDUCTOR_BIND.
+Bind: 127.0.0.1 (CONDUCTOR_BIND; 0.0.0.0 is refused), port 8790 (CONDUCTOR_API_PORT). Reach it
+      from the phone over your tailnet with `tailscale serve`.
+Auth: CONDUCTOR_TOKEN is REQUIRED — the service will not start without it, and every route except
+      the /api/health reachability probe needs it as a Bearer token.
 """
 import glob
 import hmac
@@ -593,12 +595,16 @@ def _window_start(turns, frm, last):
     opens on a question; ?from=K = everything from turn K (the app keeps K while a session is
     open, so the window only grows at its end, and lowers it to load earlier messages). No
     parameter, or a K past the end (the transcript was replaced) = the rules above with what
-    is left: everything, or the last N."""
+    is left: everything, or the last N. Whatever is asked, the latest prompt is always included."""
     n = len(turns)
+    # never start after the latest prompt: the reading view opens AT it, and a long reply (each text
+    # block between tool calls is a turn — some run to hundreds) would otherwise push it out of the
+    # window, leaving a view that opens mid-reply with no question in sight
+    last_user = max((i for i, t in enumerate(turns) if t["role"] == "user"), default=n)
     try:
         k = int(frm)
         if 0 <= k <= n:
-            return k
+            return min(k, last_user)
     except (TypeError, ValueError):
         pass
     try:
@@ -607,7 +613,7 @@ def _window_start(turns, frm, last):
         return 0
     if want <= 0 or want >= n:
         return 0
-    cut = n - want
+    cut = min(n - want, last_user)
     for i in range(cut, min(cut + 6, n)):
         if turns[i]["role"] == "user":
             return i
@@ -671,7 +677,10 @@ def summary_for(src, p, kind="line", model=None, limit=LINE_CHARS):
         if key in _SUM_BUSY:
             return {"pending": True, "etag": etag}
         if time.time() < _sum_retry_at:
-            return {"summary": None, "reason": "backoff", "etag": etag}
+            # waiting out a rate limit / outage: say "pending", not "nothing" — the app (this one
+            # and older ones) treats any other answer as final for this transcript, and one failed
+            # call then left every session looked at meanwhile without a summary until it changed
+            return {"pending": True, "etag": etag}
         _SUM_BUSY.add(key)
     _SUM_POOL.submit(_summarize_job, pid, jsonl, etag, kind, model, limit)
     return {"pending": True, "etag": etag}
@@ -908,9 +917,8 @@ class Handler(BaseHTTPRequestHandler):
             voice = bool(openai_key(kp)) if authed else False
             resp = {"ok": True, "service": "conductor-api", "voice": voice}
             if authed:
-                # which multiplexers this box can serve + the default, so the phone can
-                # show a source picker gated on what's actually installed. Authed-only:
-                # don't let an anon tailnet peer probe what's running here.
+                # which multiplexers this box can serve + the default (older apps showed a picker
+                # from this). Authed-only: don't let an anon tailnet peer probe what's running here.
                 resp["sources"] = sources.available_sources()
                 resp["source"] = sources.DEFAULT_SOURCE
                 # an Anthropic key is present -> the phone may OFFER AI summaries (it stays off until
@@ -1125,6 +1133,7 @@ def main():
     bind = os.environ.get("CONDUCTOR_BIND") or "127.0.0.1"
     if bind == "0.0.0.0":
         raise SystemExit("refusing to bind 0.0.0.0 — this runs commands on your machine; bind 127.0.0.1 and expose it with `tailscale serve`.")
+    _usage_start()   # from today on, "all time" cost totals start here (written once)
     print(f"conductor-api on http://{bind}:{port}  (token required)")
     ThreadingHTTPServer((bind, port), Handler).serve_forever()
 

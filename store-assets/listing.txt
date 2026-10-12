@@ -23,20 +23,22 @@ DESCRIPTION
 -----------
 G2C — your Herdr fleet of Claude Code and Codex sessions, hands-free on your glasses.
 
-G2C is a heads-up conductor for developers who run many coding-agent sessions at once. It brings the Claude Code and Codex sessions running in Herdr (herdr.dev) onto your Even G2 glasses, so you can stay in flow without reaching for the laptop.
+G2C is a heads-up conductor for developers who run many coding-agent sessions at once. It brings the Claude Code and Codex sessions running in Herdr (herdr.dev) onto your Even G2 glasses, so you stay in flow without reaching for the laptop.
 
 • Your layout — sessions in Herdr's own order (workspaces, then tabs); pinned ones first, finished ones brought up until you open them. Choose which workspaces to show.
-• Status at a glance — idle, working, needs you, finished — plus how much of your Claude and Codex plan limits is left, in the top row.
+• Status at a glance — idle, working, needs you, finished — plus how much of your Claude and Codex plans is left, in the top row.
 • Preview before you open — the highlighted session's last request and the end of its reply sit beside the list.
-• Real conversations — the actual prompts and replies, not terminal noise, including prompts still waiting in the agent's queue. Reopen where you left off.
+• Real conversations — the actual prompts and replies, not terminal noise, including prompts still waiting in the agent's queue.
 • Voice replies — tap, speak (keep reading while it listens), review the transcription and its cost, send.
 • Approve safely — read the full command before you pick an option.
-• Glasses menu (tap, then hold) — jump to the next session that needs you, switch a reply between condensed and full, pin a session, and flip the preview, AI summary, plan usage, wake-on-finish and screen sleep without your phone.
-• Optional AI help, with your own keys — a short summary in the preview and a one-screen version of long replies. Off by default; you choose the model (Claude Haiku by default) and see what your API calls cost.
+• Glasses menu (tap, then hold) — jump to the next session that needs you, switch a reply between condensed and full, pin a session, and flip common settings without your phone.
+• Optional AI help, with your own keys — a short summary in the preview and a one-screen version of long replies. Off by default; you choose the model and see what your API calls cost.
 • Start new sessions — pick a project tag, speak a folder, and Claude opens there.
 • Private by design — talks only to your own backend on your own machine, over Tailscale, behind your token. Nothing is sent to the app developer.
 
 Requires the Even Realities app 2.2.10 or later, and a one-time backend setup on your computer (Herdr + Claude Code + Tailscale). Setup guide: github.com/liyiyuian/tmuxor — run install.sh, then paste the printed code into the app.
+
+Want a new feature, or found a bug? Feel free to reach out — open an issue on that GitHub page.
 
 
 CATEGORY
