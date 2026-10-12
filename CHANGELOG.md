@@ -41,10 +41,18 @@ project memory; this file is the short "what changed" for each build.
   cut at a word, not mid-word, when they run long.
 - **A new mark for model-written text.** It starts with `＊` (the closest the glasses font has to
   Claude's spark) instead of `~`.
-- **Pinned sessions** show their tag in CAPITALS on the glasses instead of a ★ in front (the glasses
-  font has no bold); on the phone a pinned row is bold.
-- **Settings reordered.** What you use most is on top (sessions to pin, workspaces, switches); the
-  connection form folds away once you are connected. Every switch applies at once.
+- **Pinned sessions** show their workspace letter in CAPITALS on the glasses instead of a ★ in
+  front (the glasses font has no bold); on the phone a pinned row is bold.
+- **Settings redesigned.** What you use most is on top, and every setting is a button: tap a
+  session to pin it, tap a workspace to hide it, tap a row to switch something on or off. Short
+  one-line hints replace the long explanations. The connection form folds away once you are
+  connected. The session list no longer scrolls inside the page (that could trap the page on a
+  phone); it shows six and expands in place.
+- **API cost.** The settings page shows what your backend's own API calls cost today and over the
+  last 7 days, by provider and model, at list prices (your Claude or Codex subscription is not
+  part of this). Needs the updated backend.
+- **Shorter rows beside the preview.** With the preview on, a row shows only the first letter of
+  its workspace, so more of the session's name fits; the preview's title shows the whole name.
 - **Fix: a session attached to a background session showed the wrong conversation.** When a pane's
   Claude was a front end for a background session running elsewhere, the glasses read a different
   session under that pane and never updated. The backend now follows Herdr's session id, or the
