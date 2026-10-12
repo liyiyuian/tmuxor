@@ -47,6 +47,9 @@ window.addEventListener('unhandledrejection', (e) => {
   if (hostGone(r)) { hostBridgeLost(); reportClientError('promise', r, false) } else reportClientError('promise', r)
 })
 window.addEventListener('pointerdown', hostBridgeBack)  // a touch on this page means it is on screen again
+// Builds before 10-12 13:21 stored that event as the "last app error"; it never was one, so drop a
+// leftover instead of showing it on every launch.
+try { if (/does not support the operation or argument/.test(localStorage.getItem('conductor.lastError') || '')) localStorage.removeItem('conductor.lastError') } catch { /* no storage */ }
 
 // Phone-side TEXT input — the alternative to voice at any "listening" point (reply, new-tag
 // name, new-session folder). Shows whenever the app is waiting for input, so the app is fully

@@ -382,8 +382,22 @@ class HerdrSource:
         # Floor at 100: the SSE/menu path asks for 40, but a long permission diff needs the
         # scrollback ABOVE the live prompt to be readable in the glasses READ view (tmux gets
         # this from its own -S scrollback; herdr returns exactly --lines).
+        want = max(int(lines), 100)
+        # NEVER ask herdr for more lines than the terminal holds. A pane with no scrollback (Claude
+        # Code in full-screen mode, any full-screen app) has only its viewport; asked for more, herdr
+        # scrolls the APP up and back to collect them. Measured 2026-10-12 on a 52-row full-screen
+        # pane: 52 lines 2 ms, 53 lines 163 ms, 100 lines 300 ms — and the session scrolls on the
+        # user's screen, once a second for as long as it is open on the glasses.
+        try:
+            g = self._json(["pane", "get", target])
+            sc = (g.get("pane") or g).get("scroll") or {}
+            have = int(sc.get("viewport_rows") or 0) + int(sc.get("max_offset_from_bottom") or 0)
+        except Exception:
+            have = 0
+        if have <= 0:   # size unknown: the visible screen is the one read that can never scroll anything
+            return self._text(["pane", "read", target, "--source", "visible"])
         return self._text(["pane", "read", target, "--source", "recent-unwrapped",
-                           "--lines", str(max(int(lines), 100))])
+                           "--lines", str(min(want, have))])
 
     def send_text(self, target, text, submit=True):
         if "\n" in text:
