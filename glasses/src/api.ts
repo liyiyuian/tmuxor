@@ -34,7 +34,7 @@ export interface Pane {
   is_claude: boolean   // an agent session with a readable conversation (Claude Code or Codex)
   agent?: string       // 'claude' | 'codex' | '' — absent from a backend that predates Codex support
   is_conductor: boolean
-  done?: boolean  // client-only: set once a session goes working->idle, until it's opened — shown as »
+  done?: boolean  // client-only: set once a session goes working->idle, until it's opened — shown as ● (◆ for Codex)
   pinned?: boolean  // client-only: the user pinned this session to the top (config.ts getPins)
 }
 

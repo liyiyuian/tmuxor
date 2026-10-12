@@ -1,14 +1,14 @@
 # G2C — Setup Guide
 
-G2C turns your **Even G2 glasses** into a hands-free conductor for the **Claude Code
-(and shell) sessions running in tmux or [Herdr](https://herdr.dev/)**: see which session
+G2C turns your **Even G2 glasses** into a hands-free conductor for the **Claude Code and
+Codex sessions running in [Herdr](https://herdr.dev/)**: see which session
 needs you, read the conversation, and reply by voice — all from the glasses, over your
 Tailscale network.
 
 It has two halves:
 
 - **Backend** (`conductor_api.py` + `tmux_conductor.py`) — runs on **your computer**, reads
-  your tmux + Claude Code sessions, and exposes a small token-authenticated HTTP API.
+  your Herdr sessions, and exposes a small token-authenticated HTTP API.
 - **Glasses app** (`glasses/`) — an Even Hub plugin (web app) you install on your glasses;
   it talks to your backend over Tailscale.
 
@@ -20,11 +20,10 @@ It has two halves:
 ## 1. Prerequisites
 
 On the **computer** that runs your sessions:
-- `tmux` with your Claude Code / shell sessions in one tmux **session** (default name `0`)
-  — **or** [Herdr](https://herdr.dev/) (an agent-aware multiplexer) hosting them instead.
-  See §2d to enable/select Herdr; if you only use tmux, ignore it.
+- [Herdr](https://herdr.dev/) (an agent-aware terminal multiplexer) running, with your Claude
+  Code / Codex sessions inside it. See §2d if the backend can't find the `herdr` binary.
 - [Claude Code](https://claude.com/claude-code) installed (the app reads its session files).
-- **Python 3.10+** (no pip packages needed — the backend uses only the standard library + the `tmux` or `herdr` CLI).
+- **Python 3.10+** (no pip packages needed — the backend uses only the standard library + the `herdr` CLI).
 - **Tailscale** installed and logged in.
 - *(Optional)* an **OpenAI API key** — enables voice→text via Whisper. Without it, voice is
   off and you type your replies on the phone instead; everything else still works.
@@ -60,10 +59,8 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 # OPTIONAL overrides (defaults shown)
 CONDUCTOR_BIND=127.0.0.1          # keep loopback; expose via Tailscale (below)
-# CONDUCTOR_TMUX_SESSION=0        # which tmux session holds your panes
 # CONDUCTOR_LAUNCH_CMD=claude     # command run in a new pane when you create a session
 # CONDUCTOR_API_PORT=8790
-# CONDUCTOR_SOURCE=tmux           # default backend: tmux (default) or herdr — see §2d
 # CONDUCTOR_HERDR_BIN=            # full path to the herdr binary, if not on the service PATH
 EOF
 chmod 600 ~/.config/tmux-conductor.env
@@ -123,22 +120,18 @@ tailscale serve status      # shows your https URL, e.g. https://<host>.<tailnet
 Copy that **HTTPS URL** — you'll enter it in the glasses app. (If `serve` needs sudo every
 time, run `sudo tailscale set --operator=$USER` once.)
 
-### 2d. (Optional) Use Herdr instead of / alongside tmux
+### 2d. Herdr
 
-G2C can drive sessions hosted by **[Herdr](https://herdr.dev/)** (an agent-aware
-terminal multiplexer) instead of tmux. Herdr reports each session's state
-(working / needs-input / idle / done) **natively**, so status is more accurate than the
-tmux path's screen inference.
+G2C reads your sessions from **[Herdr](https://herdr.dev/)**, which reports each session's
+state (working / needs-input / idle / done) natively and knows which agent (Claude Code or
+Codex) runs in each pane.
 
-- **Nothing to configure to detect it:** if the `herdr` server is running, `/api/health`
-  advertises it and the phone **Setup** screen shows a backend picker (**Auto · tmux ·
-  herdr**). Pick one; the choice is sent per request and gated on what's actually installed.
+- **Nothing to configure** when the `herdr` server is running and its binary is on the
+  service's `PATH`.
 - **If `herdr` isn't found:** the `systemd --user` service `PATH` often omits `~/.local/bin`
   (where Herdr installs), so set its full path in the env file:
   `CONDUCTOR_HERDR_BIN=/home/you/.local/bin/herdr`, then `systemctl --user restart tmux-conductor`.
-- **To default the backend to Herdr** (no picker needed), set `CONDUCTOR_SOURCE=herdr`.
-- Your Claude sessions must actually run **inside** Herdr for it to see them (Herdr replaces
-  tmux; it doesn't manage an existing tmux server).
+- Your sessions must run **inside** Herdr for G2C to see them.
 
 ---
 
@@ -191,9 +184,10 @@ background — it's the Bluetooth bridge to the glasses.
 
 Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe = move/scroll):
 
-- **Session list** — your Claude and Codex sessions in your multiplexer's own order (Herdr
-  workspaces, then tabs; tmux windows, then panes), pinned (**★**) first. **●**/**○** = Claude
-  working/idle, **◆**/**◇** = Codex, **!** = needs you, **»** = finished since you last opened it. Swipe to move, tap to open,
+- **Session list** — your Claude and Codex sessions in Herdr's own order (workspaces, then
+  tabs), pinned (**★**) first. **○** idle, **»** working, **●** finished since you last opened
+  it, **!** needs you; a Codex session uses **◇** and **◆**. A session is named after its Claude
+  session name, or its Herdr tab for Codex. Swipe to move, tap to open,
   double-tap to exit. The last row is **＋ new session** (one swipe up from the top). The right
   two thirds of the screen previews the highlighted session's last prompt and the end of its reply
   (switch it off in **Connection & settings** if you prefer the plain list). The same settings
@@ -211,7 +205,7 @@ Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe =
   session** (Even app 2.2.10+).
 - **Conversation** — opens at the latest question; swipe to scroll, **tap = talk** (speak a
   reply → review screen → tap to send), double-tap = back.
-- **New session** — pick a **tag** (existing tmux window or ＋ speak a new one) → speak a
+- **New session** — pick a **tag** (an existing workspace or ＋ speak a new one) → speak a
   **folder** → confirm → it opens a Claude session there.
 - **When a session asks a question** (a menu), the options become a selectable list.
 

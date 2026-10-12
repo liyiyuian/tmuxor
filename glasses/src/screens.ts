@@ -38,10 +38,10 @@ export interface Ctx {
   cancelNewSession: () => void
 }
 
-const GLYPH: Record<string, string> = { waiting: '!', working: '●', idle: '○', other: '·' }
-// the same statuses for a Codex session: a diamond where Claude has a circle
-const CODEX_GLYPH: Record<string, string> = { working: '◆', idle: '◇' }
-const glyph = (p: Pane) => (p.agent === 'codex' && CODEX_GLYPH[p.status]) || GLYPH[p.status] || '·'
+// hollow = idle, » = working, filled = finished since you last opened it, ! = needs you.
+// A Codex session has a diamond where Claude has a circle.
+const GLYPH: Record<string, string> = { waiting: '!', working: '»', idle: '○', other: '·' }
+const glyph = (p: Pane) => p.done ? (p.agent === 'codex' ? '◆' : '●') : (p.agent === 'codex' && p.status === 'idle' ? '◇' : GLYPH[p.status] || '·')
 const PIN = '★'  // marks a pinned session (list row + open-session header)
 // The list screen is two columns sharing the display: rows in the left third (clipped to listPx), a
 // preview panel in the right two thirds (listPreview; AppGlasses columns). With the preview switched
@@ -123,7 +123,7 @@ const listScreen: GlassScreen<AppState, Ctx> = {
     const done = s.panes.filter((p) => p.done).length  // just-finished (working->idle), pinned until opened
     const idle = Math.max(0, s.panes.length - work - wait - done)
     // one consistent bar; drop zero fields instead of hiding idle when busy
-    const segs = [wait && `${wait}! need you`, work && `${work}● working`, done && `${done}» done`, idle && `${idle}○ idle`].filter(Boolean)
+    const segs = [wait && `${wait}! need you`, work && `${work}» working`, done && `${done}● done`, idle && `${idle}○ idle`].filter(Boolean)
     // Sessions first (pinned ★ band on top, then the multiplexer's own order — store.ts
     // decorateAndSort); "＋ new session" is the LAST row, one swipe up from the top (the list wraps).
     const items: (Pane | null)[] = [...s.panes, null]
@@ -139,7 +139,7 @@ const listScreen: GlassScreen<AppState, Ctx> = {
       // (to listPx, leaving the right side for the preview). ▶ marks the selected row by TEXT (columns
       // page mode flattens the line highlight style); the 3-space else keeps rows aligned.
       formatter: (it, i) =>
-        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${it.pinned ? PIN : ''}${it.done ? '»' : glyph(it)} ${it.tag}  ${it.label}` : '＋ new session'}`, listPx()),
+        truncateGlassText(`${i === hi ? '▶ ' : '   '}${it ? `${it.pinned ? PIN : ''}${glyph(it)} ${it.tag}  ${it.label}` : '＋ new session'}`, listPx()),
     })
     // The header must stay ONE line (a wrapped header pushes the list past the 10-line screen): with
     // every count in double digits the full bar is ~600px, so drop the least urgent counts to fit.
@@ -282,7 +282,7 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
     const win = s.lines.slice(top, top + slots)
     const up = top > 0 ? '▲' : ' '
     const dn = top + slots < s.lines.length ? '▼' : ' '
-    const wk = s.working ? ' ●' : ''  // ● = working, as in the list (⋯ is not in the G2 font, it drew blank)
+    const wk = s.working ? ' »' : ''  // » = working, as in the list (⋯ is not in the G2 font, it drew blank)
     const talk = s.voiceOn ? 'tap=talk' : 'tap=type'
     const pos = s.lines.length > slots ? ` ${Math.min(top + slots, s.lines.length)}/${s.lines.length}` : ''
     const head = s.status ? `${title}  ${s.status}` : `${title}${wk}  ${up}${dn}${pos}  ${talk}`

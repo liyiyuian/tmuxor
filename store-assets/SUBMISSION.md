@@ -14,7 +14,7 @@ this folder. Agent supplies the text/images; you do the portal steps.
 | Portal field | What to paste |
 |---|---|
 | **App name** | `G2C` |
-| **Subtitle / tagline** | `Your tmux Claude Code fleet, hands-free on your glasses` |
+| **Subtitle / tagline** | `Your Herdr fleet of Claude Code and Codex sessions, hands-free` |
 | **Category** | `Productivity / Developer Tools` |
 | **Description** (≤1000 chars) | the full contents of **`tester-quickstart.txt`** (~960 chars) |
 | **Privacy policy** | the **PRIVACY POLICY** section of **`listing.txt`** |

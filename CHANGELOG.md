@@ -11,9 +11,18 @@ project memory; this file is the short "what changed" for each build.
   workspaces, then tabs (tmux: windows, then panes) — with pinned ones on top. Before, they were
   re-sorted by status, so a session kept moving. Status is still the mark on each row and the
   counts in the header.
-- **Codex sessions (Herdr).** Codex CLI sessions now appear in the list (◆ working, ◇ idle; Claude
-  keeps ● ○), with the same preview and reading view. Needs the updated backend. Answering a Codex
-  approval prompt from the glasses has not been tested.
+- **Codex sessions.** Codex CLI sessions now appear in the list, named after their Herdr tab, with
+  the same preview and reading view. Needs the updated backend. Answering a Codex approval prompt
+  from the glasses has not been tested.
+- **New status marks.** **○** idle, **»** working, **●** finished since you last opened it, **!**
+  needs you; a Codex session uses **◇** and **◆**. (Working and finished swapped marks.)
+- **Herdr only.** G2C is now built and documented for Herdr. The phone no longer offers a backend
+  picker, and the backend reads Herdr by default.
+- **Settings on one page.** "Connection & settings" is always open, and the list of sessions to
+  pin (★) now lives inside it.
+- **Installer fixes.** `install.sh` now also downloads `sources.py` (without it a fresh install could
+  not start), checks for Herdr instead of tmux, tells the service where the `herdr` binary is, and
+  keeps lines you added to the settings file (such as `ANTHROPIC_API_KEY`) when it is re-run.
 - **Choose which workspaces to show.** The phone's settings list your workspaces with a tick each
   (all on by default); untick one and its sessions are left off the glasses.
 - **Optional condensed replies (off by default).** A second switch in the phone's settings,

@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getSource, setSource, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense } from './config'
+import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense } from './config'
 import { listPanes, health } from './api'
-import { subscribe, getSnapshot, resetForSourceChange, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged } from './store'
+import { subscribe, getSnapshot, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged } from './store'
 
 // Decode the `tmuxor:<base64>` blob that install.sh prints into a config.
 function decodeBlob(text: string): { base: string; token: string } | null {
@@ -33,22 +33,9 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [preview, setPv] = useState(getPreview())
   const [hiddenTags, setHidden] = useState(getHiddenTags())
   const [condense, setCond] = useState(getCondense())
-  const [source, setSrc] = useState(getSource())
-  const [sources, setSources] = useState<string[]>([])   // what the backend can serve
-  const [defSource, setDefSource] = useState('')          // the backend's own default
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  const [showCfg, setShowCfg] = useState(!c.base)  // settings start open until you're set up
   const [lastErr, setLastErr] = useState(() => { try { return localStorage.getItem('conductor.lastError') || '' } catch { return '' } })
-
-  // Ask the backend which multiplexers it can serve, so we only show a picker when there's
-  // a real choice (both tmux AND herdr present). Gated on what's installed — the phone can't
-  // offer a backend the machine doesn't have.
-  const refreshSources = () => {
-    if (!getConfig().base || !getConfig().token) return
-    health().then((h) => { setSources(h.sources || []); setDefSource(h.source || '') }).catch(() => setSources([]))
-  }
-  useEffect(refreshSources, [])
 
   // Live connection status — the phone's only status indicator now that the bottom bar is gone.
   // <App/> polls the fleet in the background, so the store reflects whether the backend is
@@ -71,11 +58,8 @@ export function Setup({ onSave }: { onSave: () => void }) {
     setIdleSleepSec(Number(idleSec) || 0)
     setWakeOnChange(wakeChange)
     setAiSummary(aiSummary)
-    setSource(source)
     try {
       await listPanes()
-      refreshSources()   // now that the connection is proven, learn what backends it offers
-      setShowCfg(false)  // connected -> fold the form away; the session list takes its place
       onSave()
     } catch (e) {
       const msg = String((e as Error)?.message || e)
@@ -98,8 +82,6 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const btn: CSSProperties = { marginTop: 14, width: '100%', padding: '14px', fontSize: 16, fontWeight: 600, borderRadius: 10, border: 'none', background: '#16c46a', color: '#04130a', opacity: busy ? 0.6 : 1 }
   const divider: CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, margin: '22px 0 0', color: '#5f7a6b', fontSize: 12 }
   const rule: CSSProperties = { flex: 1, height: 1, background: '#1f6e45' }
-  const chip: CSSProperties = { padding: '10px 14px', fontSize: 14, borderRadius: 10, border: '1px solid #1f6e45', background: '#0f1712', color: '#cfeede', cursor: 'pointer' }
-  const chipOn: CSSProperties = { background: '#16c46a', color: '#04130a', borderColor: '#16c46a', fontWeight: 700 }
   const summary: CSSProperties = { fontSize: 15, fontWeight: 600, color: '#d6ffe6', padding: '12px 0', cursor: 'pointer' }
   const row: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '4px 4px 4px 12px', borderBottom: '1px solid #173a26', fontSize: 14 }
   const rowText: CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
@@ -119,32 +101,18 @@ export function Setup({ onSave }: { onSave: () => void }) {
         </div>
       )}
 
-      {configured && !live.error && live.panes.length > 0 && (
-        <>
-          <label style={label}>Sessions — tap ★ to keep one at the top of your glasses</label>
-          <div style={{ maxHeight: 290, overflowY: 'auto', border: '1px solid #1f6e45', borderRadius: 10, background: '#0f1712' }}>
-            {live.panes.map((p) => (
-              <div key={p.n} style={row}>
-                <span style={rowText}><b>{p.tag}</b> {p.label} <span style={{ color: '#6f8a7b' }}>· {p.done ? 'done' : STATUS[p.status] || p.status}</span></span>
-                <button type="button" aria-label={p.pinned ? 'Unpin' : 'Pin'} style={{ ...pinBtn, color: p.pinned ? '#16c46a' : '#5f7a6b' }} onClick={() => togglePin(p.n)}>{p.pinned ? '★' : '☆'}</button>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
       <details style={{ marginTop: 14 }}>
         <summary style={summary}>How to use the glasses</summary>
         <ul style={{ margin: 0, paddingLeft: 18, color: '#b9d8c6', fontSize: 13, lineHeight: 1.6 }}>
-          <li><b>Session list</b> — swipe to move, tap to open, double-tap to exit. Sessions are in the same order as on your computer (herdr workspaces, then tabs); ★ sessions stay on top. ● ○ are Claude sessions, ◆ ◇ are Codex. The right side previews the highlighted session. “＋ new session” is the last row (swipe up from the top).</li>
+          <li><b>Session list</b> — swipe to move, tap to open, double-tap to exit. Sessions are in the same order as on your computer (herdr workspaces, then tabs); ★ sessions stay on top. ○ idle, » working, ● finished since you last opened it, ! needs you (Codex sessions use ◇ and ◆). The right side previews the highlighted session. “＋ new session” is the last row (swipe up from the top).</li>
           <li><b>In a session</b> — swipe to scroll, tap to reply (speak, or type here), double-tap to go back.</li>
           <li><b>When it asks you something</b> — read it, tap, swipe to your answer, tap to choose.</li>
-          <li><b>Pin / unpin</b> — tap ★ above. Or on the glasses: highlight it in the session list, tap then press-and-hold to open the menu, and choose “Pin / unpin session”.</li>
+          <li><b>Pin / unpin</b> — tap ★ next to a session in the settings below. Or on the glasses: highlight it in the session list, tap then press-and-hold to open the menu, and choose “Pin / unpin session”.</li>
         </ul>
       </details>
 
-      <details open={showCfg} onToggle={(e) => setShowCfg(e.currentTarget.open)}>
-        <summary style={summary}>Connection &amp; settings</summary>
+      <div>
+        <h3 style={{ ...summary, margin: 0, cursor: 'default' }}>Connection &amp; settings</h3>
         <p style={{ color: '#88a895', fontSize: 13, lineHeight: 1.4, margin: 0 }}>
           Run <code>install.sh</code> on your computer, then paste the config code it prints. Everything stays on this phone.
         </p>
@@ -158,21 +126,6 @@ export function Setup({ onSave }: { onSave: () => void }) {
         <input id="cfg-url" type="url" inputMode="url" style={input} value={base} onChange={(e) => { setBase(e.target.value); setErr('') }} placeholder="your Tailscale HTTPS URL" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
         <label style={label} htmlFor="cfg-token">Access token (your CONDUCTOR_TOKEN)</label>
         <input id="cfg-token" type="password" style={input} value={token} onChange={(e) => { setToken(e.target.value); setErr('') }} placeholder="paste your token" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-
-        {(sources.length > 1 || (sources.length === 1 && !!defSource && !sources.includes(defSource))) && (
-          <>
-            <label style={label}>Backend — which multiplexer hosts your sessions</label>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {['', ...sources].map((s) => (
-                <button key={s || 'auto'} type="button" onClick={() => { if (s !== source) { setSrc(s); setSource(s); resetForSourceChange() } }}
-                  style={{ ...chip, ...(source === s ? chipOn : {}) }}>
-                  {s === '' ? `Auto — ${sources.includes(defSource) ? defSource : sources[0] || 'default'}` : s}
-                </button>
-              ))}
-            </div>
-            <p style={{ color: '#6f8a7b', fontSize: 12, margin: '6px 0 0' }}>Pick which backend’s sessions the glasses drive.</p>
-          </>
-        )}
 
         <label style={label} htmlFor="cfg-projects">Projects folder (optional) — where new sessions are created</label>
         <input id="cfg-projects" style={input} value={projects} onChange={(e) => { setProjects(e.target.value); setErr('') }} placeholder="~/projects (default)" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
@@ -204,6 +157,21 @@ export function Setup({ onSave }: { onSave: () => void }) {
             </div>
           </>
         )}
+
+        {configured && !live.error && live.panes.length > 0 && (
+          <>
+          <label style={label}>Sessions — tap ★ to keep one at the top of your glasses</label>
+          <div style={{ maxHeight: 290, overflowY: 'auto', border: '1px solid #1f6e45', borderRadius: 10, background: '#0f1712' }}>
+            {live.panes.map((p) => (
+              <div key={p.n} style={row}>
+                <span style={rowText}><b>{p.tag}</b> {p.label} <span style={{ color: '#6f8a7b' }}>· {p.done ? 'done' : STATUS[p.status] || p.status}</span></span>
+                <button type="button" aria-label={p.pinned ? 'Unpin' : 'Pin'} style={{ ...pinBtn, color: p.pinned ? '#16c46a' : '#5f7a6b' }} onClick={() => togglePin(p.n)}>{p.pinned ? '★' : '☆'}</button>
+              </div>
+            ))}
+          </div>
+          </>
+        )}
+
 
         <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* applies at once, like the summary switch below */}
@@ -241,7 +209,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
 
         {err && <p style={{ color: '#ff8a8a', fontSize: 13 }}>{err}</p>}
         <button style={btn} onClick={save} disabled={busy}>{busy ? 'Connecting…' : 'Save & connect'}</button>
-      </details>
+      </div>
       {/* which build this is — the version number is held between submissions, so it can't say */}
       <p style={{ color: '#6f8a7b', fontSize: 11, margin: '18px 0 0', textAlign: 'center' }}>G2C {__APP_VERSION__} · build {__BUILD__}</p>
     </div>

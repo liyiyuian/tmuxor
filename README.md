@@ -2,11 +2,11 @@
 
 > Formerly **TMUXor** — same app, new name (the repo, package id and `tmuxor:` setup code are unchanged).
 
-**Your tmux (or Herdr) Claude Code fleet, hands-free on your Even G2 glasses.**
+**Your Herdr fleet of Claude Code and Codex sessions, hands-free on your Even G2 glasses.**
 
-G2C puts the Claude Code (and shell) sessions running in your terminal — in **tmux**
-or in **[Herdr](https://herdr.dev/)** — onto your glasses, so your running work stays
-trackable and hands-free. Each tmux window (or Herdr workspace) is a project **tag**, so
+G2C puts the Claude Code and Codex sessions running in **[Herdr](https://herdr.dev/)** (an
+agent-aware terminal multiplexer) onto your glasses, so your running work stays
+trackable and hands-free. Each Herdr workspace is a project **tag**, so
 you tell sessions apart at a glance — see which one needs you, read its real prompts and
 replies, and **continue** it by voice — over your own private Tailscale network. Nothing
 is sent to anyone but your own machine.
@@ -30,7 +30,7 @@ Even Hub.
 
 ## Quick start
 
-On the computer where your tmux + Claude Code sessions run:
+On the computer where Herdr and your Claude Code sessions run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/liyiyuian/tmuxor/main/install.sh | bash
@@ -51,13 +51,10 @@ That's it — no typing the URL or token by hand. (Manual entry also available �
 
 ### Requirements (prepare these first)
 - **Even G2 glasses** + the Even phone app, paired.
-- **tmux** and **Claude Code** installed. You do *not* need a session running already —
-  G2C can start your first one from the glasses ("＋ new session").
-- *(Alternative to tmux)* **[Herdr](https://herdr.dev/)** — an agent-aware terminal
-  multiplexer. If Herdr is installed and running, G2C auto-detects it; the phone Setup
-  screen then lets you pick tmux or Herdr (Herdr reports session status natively). If the
-  `herdr` binary isn't on the service's `PATH`, set `CONDUCTOR_HERDR_BIN` in
-  `~/.config/tmux-conductor.env` to its full path.
+- **[Herdr](https://herdr.dev/)** and **Claude Code** installed, with Herdr running. You do
+  *not* need a session running already — G2C can start your first one from the glasses
+  ("＋ new session"). If the `herdr` binary isn't on the service's `PATH`, set
+  `CONDUCTOR_HERDR_BIN` in `~/.config/tmux-conductor.env` to its full path.
 - **Tailscale**, signed in on the computer **and** the phone (same tailnet), **with HTTPS
   Certificates enabled** for your tailnet (Tailscale admin console → Settings → enable
   HTTPS) — `tailscale serve` needs it for the secure URL the glasses connect to.
@@ -66,7 +63,7 @@ That's it — no typing the URL or token by hand. (Manual entry also available �
   **type** your replies and new-session names on your phone instead — everything still works.
   The installer prompts for it (Enter to skip; re-run later to add it).
 
-The installer checks Python / tmux / Claude / Tailscale and tells you what's missing. The
+The installer checks Python / Herdr / Claude / Tailscale and tells you what's missing. The
 Tailscale **HTTPS** toggle and signing in on the phone are the two it can't do for you.
 
 ---
@@ -79,12 +76,10 @@ replies — everything else happens on the glasses with **three gestures**, reas
 
 > **tap** = the primary action · **double-tap** = back · **swipe up/down** = move / scroll
 
-- **The fleet** — your sessions, sorted by what needs you: **!** waiting on you · **●** working
-  · **○** idle, with **finished** sessions (`»`) pinned on top until you open them. Each row is
-  `tag  title` (the tag is the tmux window / Herdr workspace / project). Swipe to scroll
-  (**▶** marks the selected row — it follows the session, so a re-sort never moves it onto a
-  different one), tap to open. Sessions are listed in your multiplexer's own order (Herdr workspaces, then tabs;
-  tmux windows, then panes) with pinned ones on top; ● ○ mark Claude sessions, ◆ ◇ Codex; the last row,
+- **The fleet** — your sessions in Herdr's own order (workspaces, then tabs), pinned ones on top:
+  **!** waiting on you · **»** working · **○** idle · **●** finished since you last opened it
+  (Codex sessions use **◇** and **◆**). Each row is `tag  title` (the tag is the Herdr workspace).
+  Swipe to scroll (**▶** marks the selected row), tap to open. The last row,
   **＋ new session**, is one swipe up from the top. The right two thirds of the screen **previews** the
   highlighted session — your last prompt and the end of its reply — so you can triage without
   opening each one. *Optional:* add your own Anthropic API key to the backend and switch on

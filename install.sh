@@ -37,13 +37,14 @@ command -v python3 >/dev/null || die "python3 not found (need 3.10+). Install Py
 PYV=$(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])')
 python3 -c 'import sys;exit(0 if sys.version_info[:2]>=(3,10) else 1)' || die "python3 $PYV too old; need 3.10+."
 ok "python3 $PYV"
-command -v tmux >/dev/null   && ok "tmux"      || die "tmux not found. Install tmux."
+HERDR_PATH=$(command -v herdr || ls "$HOME/.local/bin/herdr" 2>/dev/null || true)
+[ -n "$HERDR_PATH" ] && ok "herdr ($HERDR_PATH)" || die "herdr not found. Install Herdr: https://herdr.dev/"
 command -v claude >/dev/null && ok "claude"    || warn "claude (Claude Code) not on PATH — install it so sessions can launch."
 command -v tailscale >/dev/null && ok "tailscale" || die "tailscale not found. Install + log in: https://tailscale.com/download"
 
 # 2) download backend --------------------------------------------------------
 mkdir -p "$INSTALL_DIR"
-for f in conductor_api.py tmux_conductor.py; do
+for f in conductor_api.py tmux_conductor.py sources.py; do
   if [ -n "${TMUXOR_SRC:-}" ]; then
     cp "$TMUXOR_SRC/$f" "$INSTALL_DIR/$f"
   else
@@ -76,12 +77,17 @@ fi
 
 # 5) write env file (chmod 600) ---------------------------------------------
 mkdir -p "$(dirname "$ENV_FILE")"
+# keep anything you added yourself (e.g. ANTHROPIC_API_KEY for the optional AI summaries)
+KEEP=$(grep -v -E '^(CONDUCTOR_TOKEN|CONDUCTOR_BIND|CONDUCTOR_API_PORT|CONDUCTOR_HERDR_BIN|OPENAI_API_KEY)=' "$ENV_FILE" 2>/dev/null || true)
 umask 177
 {
   echo "CONDUCTOR_TOKEN=$TOKEN"
   echo "CONDUCTOR_BIND=127.0.0.1"
   echo "CONDUCTOR_API_PORT=$PORT"
+  # the service's PATH often lacks ~/.local/bin, where Herdr installs: give it the full path
+  echo "CONDUCTOR_HERDR_BIN=$HERDR_PATH"
   [ -n "$OPENAI_KEY" ] && echo "OPENAI_API_KEY=$OPENAI_KEY"
+  [ -n "$KEEP" ] && printf '%s\n' "$KEEP"
 } > "$ENV_FILE"
 umask 022
 chmod 600 "$ENV_FILE"

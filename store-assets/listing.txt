@@ -9,34 +9,36 @@ G2C
 
 SUBTITLE / TAGLINE
 ------------------
-Your tmux or Herdr Claude Code fleet, hands-free on your glasses
+Your Herdr fleet of Claude Code and Codex sessions, hands-free
 
 
 SHORT DESCRIPTION
 -----------------
-G2C brings the Claude Code (and shell) sessions running in tmux or Herdr
+G2C brings the Claude Code and Codex sessions running in Herdr
 onto your Even G2 glasses. See which session needs you, read its latest reply,
 and respond by voice — hands-free, over your own private Tailscale network.
 
 
 DESCRIPTION
 -----------
-G2C — your tmux or Herdr Claude Code fleet, hands-free on your glasses.
+G2C — your Herdr fleet of Claude Code and Codex sessions, hands-free on your glasses.
 
-G2C is a heads-up conductor for developers who run many Claude Code sessions
-at once. It brings the sessions running in your terminal — in tmux or in Herdr
-(herdr.dev) — onto your Even G2 glasses so you can stay in flow without reaching
+G2C is a heads-up conductor for developers who run many coding-agent sessions
+at once. It brings the Claude Code and Codex sessions running in Herdr
+(herdr.dev) onto your Even G2 glasses so you can stay in flow without reaching
 for the laptop.
 
-• Organized fleet — tmux windows (or Herdr workspaces) become project tags; each
-  pane is one session, listed by tag so you can find things fast.
-• Done, front and center — when a working session finishes it pins to the top of
-  the list, marked done, until you open it, so nothing gets lost in the pile.
+• Your layout, on your glasses — sessions are listed in Herdr's own order
+  (workspaces, then tabs), and each workspace is a project tag. Choose which
+  workspaces to show.
+• Status at a glance — idle, working, needs you, or finished since you last
+  opened it, for Claude Code and Codex sessions alike.
 • Pin what matters — star the sessions you care about (from your phone, or the
   glasses menu) and they stay at the top of the list.
 • Preview before you open — the list shows the highlighted session's last
   prompt and the end of its reply, so you can triage at a glance. Optionally,
-  bring your own Anthropic key for a one-line AI summary instead.
+  bring your own Anthropic key for a one-line AI summary, and for a condensed
+  version of long replies.
 • Real conversations — read the actual prompts and replies (not raw terminal
   noise). Reopen a session right where you left off — or jump straight to a new
   question if one arrived while you were away.
@@ -44,13 +46,10 @@ for the laptop.
   Approve interactive menu choices with a tap.
 • Start new sessions — pick a project tag, speak a folder, and G2C opens a
   Claude session there.
-• Your choice of backend — use tmux or Herdr. If your machine runs both, pick
-  which one hosts your sessions right on the Setup screen; Herdr sessions report
-  their working / needs-input status natively.
 • Private by design — talks only to your own backend on your own machine, over
   Tailscale, behind a token you set. Nothing is sent to the app developer.
 
-Requires a one-time backend setup on your computer (tmux or Herdr + Claude Code
+Requires a one-time backend setup on your computer (Herdr + Claude Code
 + Tailscale). Full setup guide: github.com/liyiyuian/tmuxor — run install.sh,
 then paste the printed config code into the app.
 
@@ -63,7 +62,7 @@ Productivity / Developer Tools
 PERMISSIONS (justifications)
 ----------------------------
 network — Connects to your own G2C backend over Tailscale to read and drive
-your tmux or Herdr sessions. (Whitelisted to Tailscale hosts; the app talks only
+your Herdr sessions. (Whitelisted to Tailscale hosts; the app talks only
 to the backend URL you enter in Setup.)
 
 g2-microphone — Captures glasses microphone audio for voice replies, transcribed
@@ -88,7 +87,7 @@ responsible for securing your backend and API keys.
 TERMS & CONDITIONS
 ------------------
 G2C is provided "as is," without warranty of any kind. It is a developer tool
-that views and controls software (tmux / Claude Code sessions) running on your
+that views and controls software (Herdr / Claude Code / Codex sessions) running on your
 own computer; you are solely responsible for the commands issued on your behalf
 and for the security of your backend and credentials. The developer is not liable
 for any damages arising from its use.

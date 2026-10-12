@@ -32,8 +32,10 @@ import tmux_conductor as tc
 TMUX_SESSION = os.environ.get("CONDUCTOR_TMUX_SESSION", "0")
 LAUNCH_CMD = os.environ.get("CONDUCTOR_LAUNCH_CMD", "claude")
 
-# default source when the request doesn't pick one — tmux keeps today's behavior.
-DEFAULT_SOURCE = os.environ.get("CONDUCTOR_SOURCE", "tmux")
+# default source when the request doesn't pick one.
+# herdr is the multiplexer G2C is built for and documented with. The tmux source below still works
+# (set CONDUCTOR_SOURCE=tmux, or have no herdr installed) but is no longer advertised.
+DEFAULT_SOURCE = os.environ.get("CONDUCTOR_SOURCE", "herdr")
 
 
 # =========================================================================
@@ -162,6 +164,33 @@ _sname_cache = {"t": 0.0, "sid": {}, "pid": {}}
 _SNAME_TTL = 20.0
 _hlabel_cache = {}   # herdr pane_id -> (name, ts): caches the process-info resolution
 _codex_files = {}    # Codex session id -> its rollout transcript path (a session's file never moves)
+_tab_cache = {"t": 0.0, "v": {}}     # herdr tab_id -> label, refreshed every few seconds
+_cxname_cache = {"key": None, "v": {}}  # Codex session id -> its thread name (~/.codex/session_index.jsonl)
+
+
+def _codex_thread_name(sid):
+    """The name Codex itself gave a session (its session index), or ''."""
+    path = os.path.join(os.path.dirname(CODEX_SESSIONS), "session_index.jsonl")
+    try:
+        st = os.stat(path)
+    except OSError:
+        return ""
+    key = (st.st_mtime_ns, st.st_size)
+    if _cxname_cache["key"] != key:
+        names = {}
+        try:
+            with open(path, errors="replace") as f:
+                for ln in f:
+                    try:
+                        r = json.loads(ln)
+                    except Exception:
+                        continue
+                    if r.get("id") and r.get("thread_name"):
+                        names[r["id"]] = str(r["thread_name"]).split("\n", 1)[0].strip()   # later lines win
+        except OSError:
+            pass
+        _cxname_cache["key"], _cxname_cache["v"] = key, names
+    return _cxname_cache["v"].get(sid, "")
 CODEX_SESSIONS = os.path.expanduser(os.environ.get("CONDUCTOR_CODEX_SESSIONS", "~/.codex/sessions"))
 
 
@@ -290,6 +319,18 @@ class HerdrSource:
                 wsmap[w["workspace_id"]] = w
         except Exception:
             pass
+        # tab names: what the user sees for a session in herdr. Only a tab that holds ONE pane names
+        # its session (a split tab's label can't tell its panes apart).
+        now = time.time()
+        if now - _tab_cache["t"] > 5:
+            try:
+                _tab_cache["v"] = {t["tab_id"]: (t.get("label") or "").strip() for t in self._json(["tab", "list"]).get("tabs", [])}
+                _tab_cache["t"] = now
+            except Exception:
+                pass
+        per_tab = defaultdict(int)
+        for rp in raw:
+            per_tab[rp.get("tab_id")] += 1
         out = []
         for rp in raw:
             ws = rp.get("workspace_id", "")
@@ -314,6 +355,7 @@ class HerdrSource:
                 "is_conductor": False,                        # the API runs as a service, not inside a pane
                 "is_claude": is_claude,
                 "agent": agent,
+                "_tab": _tab_cache["v"].get(rp.get("tab_id"), "") if per_tab[rp.get("tab_id")] == 1 else "",
                 "_agent_status": rp.get("agent_status", "unknown"),
                 "_sid": (rp.get("agent_session") or {}).get("value"),  # Claude sessionId -> real name
             })
@@ -370,12 +412,15 @@ class HerdrSource:
         return _HERDR_STATUS.get(p.get("_agent_status", "unknown"), "idle")
 
     def session_label(self, p):
-        # Prefer the real Claude session name (its /rename or auto title); fall back to the
-        # project folder name when the pane has no resolvable session.
-        if p.get("is_claude") and p.get("agent") != "codex":
-            nm = self._claude_name(p)
-            if nm:
-                return nm
+        # Claude: its real session name (its /rename or auto title). Codex: the herdr tab name — what
+        # the user sees for it on the computer — else the name Codex gave the session. Either falls
+        # back to the tab name, then the project folder (which several sessions usually share).
+        if p.get("agent") == "codex":
+            nm = p.get("_tab") or _codex_thread_name(p.get("_sid"))
+        else:
+            nm = (self._claude_name(p) if p.get("is_claude") else None) or p.get("_tab")
+        if nm:
+            return nm
         base = os.path.basename((p.get("path") or "").rstrip("/"))
         return base or p.get("command") or "session"
 

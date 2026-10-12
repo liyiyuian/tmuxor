@@ -148,7 +148,7 @@ function previewOf(turns: Turn[], working: boolean): { head: string[]; raw: stri
   for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === 'user') { u = i; break }
   const head = u >= 0 ? [truncateGlassText('▶ ' + turns[u].text.split('\n')[0], PREVIEW_PX)] : []
   const paras = turns.slice(u + 1).filter((t) => t.role === 'assistant').flatMap((t) => t.text.split('\n')).filter((l) => l.trim())
-  if (working) paras.push('● working…')
+  if (working) paras.push('» working…')
   // Fill the space from the END of the reply: whole paragraphs while they fit, then the tail of the
   // next one, marked … so it doesn't read as the start of a sentence.
   const room = PREVIEW_ROWS - head.length
@@ -557,7 +557,7 @@ function buildView() {
   const raw = [...convoLines]
   if (state.working) {
     if (raw.length) raw.push('')
-    raw.push(...wrapPx(state.activity ? '● ' + state.activity : '● working…'))  // ● = working, as in the list (⋯ is not in the G2 font)
+    raw.push(...wrapPx(state.activity ? '» ' + state.activity : '» working…'))  // » = working, as in the list (⋯ is not in the G2 font)
   }
   const lines = raw.length ? raw : ['(no replies yet)']
   const ms = maxScroll(lines.length, VIEW_SLOTS)
@@ -718,7 +718,7 @@ function stopAnswers() { if (answersTimer) { clearInterval(answersTimer); answer
 
 export function openPane(n: string, label: string, isClaude: boolean, cwd: string) {
   closeStream(); stopAnswers()
-  if (finished.delete(n)) repaintPanes()  // opening a finished session acknowledges it -> its » mark goes
+  if (finished.delete(n)) repaintPanes()  // opening a finished session acknowledges it -> its ● mark goes
   convoLines = []
   set({ activePaneN: n, activeLabel: label, activeIsClaude: isClaude, activeCwd: cwd, listSel: n,
         lines: ['…'], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', phase: 'view', draft: '', draftKind: null, status: '', typingText: '' })
