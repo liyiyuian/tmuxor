@@ -41,18 +41,15 @@ export interface Ctx {
 // hollow = idle, » = working, filled = finished since you last opened it, ! = needs you.
 // A Codex session has a diamond where Claude has a circle.
 const GLYPH: Record<string, string> = { waiting: '!', working: '»', idle: '○', other: '·' }
-// Plan usage as battery-style blocks, one group per account: the short (5-hour) window, then the
-// week — filled = used. ■ and □ are the only block pair the glasses font has (░ ▮ ▯ are missing).
-// As many cells per meter as fit on one line: 5, else 4, else 3.
-const cells = (pct: number | null, n: number) => pct == null ? '–' : '■'.repeat(Math.round(pct / 100 * n)) + '□'.repeat(n - Math.round(pct / 100 * n))
+// Plan usage, small enough to sit in the top row beside the session counts (it must not cost a row
+// of its own): per account one level bar for the short (5-hour) window and one for the week —
+// taller = more used. ▁▂▃▄▅▆▇█ all exist in the glasses font (■ □ blocks do too, but a meter of
+// them is 80px+; ░ ▮ ▯ are missing). The phone shows the exact percentages.
+const LEVELS = '▁▂▃▄▅▆▇█'
+const level = (pct: number | null) => pct == null ? '·' : LEVELS[Math.min(7, Math.floor(pct / 12.5))]
 const short = (label: string, agent: string) => agent === 'codex' ? 'Cx' : label.length <= 2 ? label : label.slice(0, 1).toUpperCase()
-export function usageLine(limits: AppState['limits']): string {
-  if (!limits.length) return ''
-  for (const n of [5, 4, 3]) {
-    const text = limits.map((l) => `${short(l.label, l.agent)} ${[l.session, l.week].filter((v, i) => v != null || (i === 1 && l.session == null)).map((v) => cells(v, n)).join(' ')}`).join('   ')
-    if (getTextWidth(text) <= 548) return text
-  }
-  return ''
+export function usageMini(limits: AppState['limits']): string {
+  return limits.map((l) => short(l.label, l.agent) + [l.session, l.week].filter((v, i) => v != null || (i === 1 && l.session == null)).map(level).join('')).join(' ')
 }
 // The workspace tag in a list row. Beside the preview the row is a third of the screen, so the tag
 // is cut to its first character and the session's own name gets the room (the panel's title shows
@@ -163,10 +160,16 @@ const listScreen: GlassScreen<AppState, Ctx> = {
     const head = (n: number) => `SESSIONS ${s.panes.length} · p${page}/${pages}  ${segs.slice(0, n).join(' · ') || 'no sessions'}`
     let n = segs.length
     while (n > 1 && getTextWidth(head(n)) > 548) n--
-    // the line under the header is otherwise empty: plan usage goes there, as battery-style blocks
-    const hdr = glassHeader(head(n)), use = getUsageLine() ? usageLine(s.limits) : ''
-    if (use) hdr[1] = line(use, 'meta')
-    return { lines: [...hdr, ...list] }
+    let title = head(n)
+    // Plan usage shares this row: the counts lose their words (1! 5» 27○ — the marks are the same
+    // as on the rows) to make room. If even that does not fit, the counts win and usage is left out.
+    const use = getUsageLine() ? usageMini(s.limits) : ''
+    if (use) {
+      const tiny = [wait && `${wait}!`, work && `${work}»`, done && `${done}●`, idle && `${idle}○`].filter(Boolean).join(' ')
+      const both = `SESSIONS ${s.panes.length} · p${page}/${pages}  ${tiny || 'no sessions'}   ${use}`
+      if (getTextWidth(both) <= 548) title = both
+    }
+    return { lines: [...glassHeader(title), ...list] }
   },
   action(a, nav, s, ctx) {
     if (a.type === 'GO_BACK') { ctx.exitApp(); return nav } // root double-tap = system exit dialog
