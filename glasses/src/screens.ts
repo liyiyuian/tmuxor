@@ -170,7 +170,7 @@ const listScreen: GlassScreen<AppState, Ctx> = {
       const both = `SESSIONS ${s.panes.length} · p${page}/${pages}  ${tiny || 'no sessions'}   ${use}`
       if (getTextWidth(both) <= 548) title = both
     }
-    return { lines: [...glassHeader(title), ...list] }
+    return { lines: [...glassHeader(s.flash || title), ...list] }
   },
   action(a, nav, s, ctx) {
     if (a.type === 'GO_BACK') { ctx.exitApp(); return nav } // root double-tap = system exit dialog
@@ -312,7 +312,8 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
     // a long name gives way to the hint (the only place the glasses say what a tap does), not the
     // other way round
     const tail = `${wk}  ${up}${dn}${pos}  ${talk}`
-    const head = s.status ? `${title}  ${s.status}` : truncateGlassText(title, Math.max(120, 548 - getTextWidth(tail))) + tail
+    const note = s.status || s.flash
+    const head = note ? `${title}  ${note}` : truncateGlassText(title, Math.max(120, 548 - getTextWidth(tail))) + tail
     return { lines: [
       line(truncateGlassText(head), 'normal'),
       ...win.map((l) => line(truncateGlassText(l), 'meta')),

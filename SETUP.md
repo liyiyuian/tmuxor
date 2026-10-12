@@ -216,16 +216,22 @@ Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe =
   the backend) switch on **condensed replies**: the latest reply of an opened session shown as
   about one screen, marked `＊`.
 - **AI summaries (optional, off by default)** — with `ANTHROPIC_API_KEY` set on the backend, the
-  phone's **Connection & settings** shows “Summarize list previews with Claude Haiku”. Turn it on
-  and the preview shows a one-line summary (marked `＊`) instead of the raw reply. Your backend sends
-  the highlighted session's latest request and the end of its reply (up to 6,000 characters) to
+  phone's settings show an **AI summary** switch. Turn it on and the preview shows a short summary
+  (marked `＊`), sized to fit the panel, instead of the raw reply. Your backend sends the
+  highlighted session's latest request and the end of its reply (up to 6,000 characters) to
   Anthropic under your key — once per change, never while the session is still working. Each
-  summary is one small Claude Haiku request (a few hundred to ~2,000 input tokens).
+  summary is one small request (a few hundred to ~2,000 input tokens).
+- **Models** — under **Models** on the phone you choose which model does that work, from the ones
+  your backend offers, with their list prices: Claude Haiku 5.5 (the default and the cheapest),
+  Sonnet 5.5 or Opus 5.5 for summaries and condensed replies; OpenAI Whisper (default), GPT-4o
+  mini Transcribe or GPT-4o Transcribe for voice. `CONDUCTOR_SUMMARY_MODEL` /
+  `CONDUCTOR_VOICE_MODEL` in the backend's settings file change the defaults.
 - **Pin a session** — tap ★ next to it on the phone. Or on the glasses: highlight it in the
   session list, tap then press-and-hold to open the system menu, and choose **Pin / unpin
   session** (Even app 2.2.10+). The same menu has **Next that needs you** (in the list: jump to
-  the next session waiting on you, then back to the top) and **Condensed / full reply** (in a
-  session, with condensed replies on).
+  the next session waiting on you, then back to the top), **Condensed / full reply** (in a
+  session, with condensed replies on), and quick switches for the preview, AI summary, plan
+  usage, wake on finish and screen sleep (never / 30 s).
 - **Conversation** — opens at the latest question; swipe to scroll, **tap = talk** (speak a
   reply → review screen → tap to send), double-tap = back.
 - **New session** — pick a **tag** (an existing workspace or ＋ speak a new one) → speak a

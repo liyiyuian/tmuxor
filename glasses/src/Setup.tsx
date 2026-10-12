@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getAiSummary, setAiSummary, getSeenNews, setSeenNews, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense, getUsageLine, setUsageLine } from './config'
-import { listPanes, getUsage, type Usage, type UsageRow } from './api'
-import { subscribe, getSnapshot, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged, loadLimits } from './store'
+import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getAiSummary, setAiSummary, getSeenNews, setSeenNews, getSummaryModel, setSummaryModel, getVoiceModel, setVoiceModel, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense, getUsageLine, setUsageLine } from './config'
+import { listPanes, getUsage, type Usage, type UsageRow, type ModelChoice } from './api'
+import { subscribe, getSnapshot, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged, modelSettingChanged, loadLimits } from './store'
 
 // Decode the `tmuxor:<base64>` blob that install.sh prints into a config.
 function decodeBlob(text: string): { base: string; token: string } | null {
@@ -61,7 +61,7 @@ function CostTable({ title, rows }: { title: string; rows: UsageRow[] }) {
   )
 }
 // one short "what changed" note, shown once: a new gesture is useless if nobody knows it exists
-const NEWS_ID = 'menu-1'
+const NEWS_ID = 'menu-2'
 const SESSIONS_SHOWN = 6  // pinned sessions sort first, so they are always among these
 // screen-sleep choices; a value set by an older build that is not one of these is shown as its own choice
 const SLEEP: [number, string][] = [[0, 'Never'], [30, '30 s'], [60, '1 min'], [300, '5 min']]
@@ -86,6 +86,8 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [condense, setCond] = useState(getCondense())
   const [usage, setUsage] = useState<Usage | null>(null)
   const [usageLine, setUl] = useState(getUsageLine())
+  const [sumModel, setSumModel] = useState(getSummaryModel())
+  const [voiceModel, setVoiceM] = useState(getVoiceModel())
   const [news, setNews] = useState(() => getSeenNews() !== NEWS_ID)
   const [allSessions, setAllSessions] = useState(false)  // the session list shows its first few until asked for the rest
   const [err, setErr] = useState('')
@@ -102,6 +104,11 @@ export function Setup({ onSave }: { onSave: () => void }) {
     : live.error ? '○ Can’t reach your backend — check the URL & token'
     : `● Connected · ${live.panes.length} session${live.panes.length === 1 ? '' : 's'}`
   const statusColor = configured && !live.error ? '#16c46a' : '#ffb38a'
+
+  // a setting flipped from the glasses menu: show its new value here too
+  useEffect(() => {
+    setPv(getPreview()); setAi(getAiSummary()); setUl(getUsageLine()); setWakeChange(getWakeOnChange()); setIdleSec(String(getIdleSleepSec()))
+  }, [live.settingsRev])
 
   // API cost: asked for when the page opens and on "Refresh" — never polled.
   const loadUsage = () => { if (getConfig().base && getConfig().token) getUsage().then(setUsage).catch(() => setUsage(null)) }
@@ -188,7 +195,8 @@ export function Setup({ onSave }: { onSave: () => void }) {
           <div style={{ fontSize: 15, fontWeight: 700 }}>New in the glasses menu</div>
           <div style={{ fontSize: 13, color: C.soft, marginTop: 4, lineHeight: 1.45 }}>
             Tap, then hold opens the menu. It now has <b>Next that needs you</b> (in the session list), <b>Condensed / full reply</b> (in
-            a session, when Condensed replies is on) and <b>Pin / unpin session</b>. Tap, double-tap and swipe work as before.
+            a session, when Condensed replies is on) and <b>Pin / unpin session</b>, plus quick switches for the preview, AI summary, plan
+            usage, wake on finish and screen sleep. Tap, double-tap and swipe work as before.
           </div>
           <button type="button" style={{ ...pill(true), marginTop: 10, cursor: 'pointer', fontFamily: 'inherit' }}
             onClick={() => { setSeenNews(NEWS_ID); setNews(false) }}>Got it</button>
@@ -242,7 +250,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
           <Toggle label="Preview" hint="Show the highlighted session's latest reply beside the list." on={preview}
             onChange={(v) => { setPv(v); setPreview(v); previewSettingChanged() }} />
           {live.canSummarize && preview && (
-            <Toggle label="AI summary" hint="One line by Claude Haiku instead of the raw reply. Sends that request and reply to Anthropic with your own key." on={aiSummary}
+            <Toggle label="AI summary" hint="A short summary, sized to fit the preview, instead of the raw reply. Sends that request and reply to Anthropic with your own key." on={aiSummary}
               onChange={(v) => { setAi(v); setAiSummary(v) }} />
           )}
           {live.canCondense && (
@@ -271,13 +279,41 @@ export function Setup({ onSave }: { onSave: () => void }) {
         </div>
       </Section>
 
+      {/* which model does the paid work — offered by the backend, cheapest first; '' = its default */}
+      {live.models && (live.canSummarize || live.voiceOn) && (
+        <Section title="Models" hint="Which model your backend uses, at list prices. The first of each is the cheapest.">
+          <div style={card}>
+            {([
+              live.canSummarize && ['AI summary and condensed replies', 'Anthropic, per million tokens in / out', live.models.summary, sumModel || live.models.summary_default,
+                (id: string) => { setSumModel(id); setSummaryModel(id); modelSettingChanged() }, (m: ModelChoice) => m.in == null ? '' : `$${m.in} / $${m.out}`],
+              live.voiceOn && ['Voice', 'OpenAI speech to text, per minute', live.models.voice, voiceModel || live.models.voice_default,
+                (id: string) => { setVoiceM(id); setVoiceModel(id) }, (m: ModelChoice) => m.per_min == null ? '' : `$${m.per_min}`],
+            ] as (false | [string, string, ModelChoice[], string, (id: string) => void, (m: ModelChoice) => string])[]).map((g) => g && (
+              <div key={g[0]} style={{ ...rowBtn, cursor: 'default', flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                <span>
+                  <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{g[0]}</span>
+                  <span style={{ display: 'block', fontSize: 12, color: C.mute, marginTop: 2 }}>{g[1]}</span>
+                </span>
+                <span role="group" aria-label={g[0]} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {g[2].map((m) => (
+                    <button key={m.id} type="button" data-testid="model-opt" aria-pressed={g[3] === m.id} style={{ ...pill(g[3] === m.id), cursor: 'pointer', fontFamily: 'inherit' }}
+                      onClick={() => g[4](m.id)}>{m.label}{g[5](m) && <span style={{ fontWeight: 400, opacity: 0.8 }}> · {g[5](m)}</span>}</button>
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
       {usage && (
         <Section title="API cost" hint="What your backend's own API calls cost, at list prices. Not your Claude or Codex subscription.">
           <div style={card}>
             <CostTable title="Today" rows={usage.today} />
             <CostTable title="Last 7 days" rows={usage.week} />
+            {usage.all && <CostTable title={`All time${usage.start ? ` · since ${new Date(usage.start * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : ''}`} rows={usage.all} />}
             <button type="button" style={{ ...rowBtn, justifyContent: 'center', borderBottom: 'none', color: '#7fd9a6', fontSize: 13 }} onClick={loadUsage}>
-              {usage.since ? `Counting since ${new Date(usage.since * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ` : ''}Refresh
+              {!usage.all && usage.since ? `Counting since ${new Date(usage.since * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ` : ''}Refresh
             </button>
           </div>
         </Section>
@@ -291,7 +327,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
           <li><b>List</b> — swipe to move, tap to open, double-tap to exit.</li>
           <li><b>In a session</b> — swipe to scroll, tap to reply (speak, or type here), double-tap to go back.</li>
           <li><b>When it asks you something</b> — read it, tap, swipe to your answer, tap to choose.</li>
-          <li><b>The glasses menu</b> (tap, then hold) — <i>Next that needs you</i> jumps down the list to the next session waiting on you, then back to the top. <i>Condensed / full reply</i> switches an open session's reply (with Condensed replies on). <i>Pin / unpin session</i> keeps a session on top.</li>
+          <li><b>The glasses menu</b> (tap, then hold) — <i>Next that needs you</i> jumps down the list to the next session waiting on you, then back to the top. <i>Condensed / full reply</i> switches an open session's reply (with Condensed replies on). <i>Pin / unpin session</i> keeps a session on top. The rest are quick switches for settings on this page (preview, AI summary, plan usage, wake on finish, screen sleep never / 30 s); the top row says what changed.</li>
           <li><b>Marks</b> — ○ idle · » working · ● finished · ! needs you (Codex: ◇ ◆). CAPITALS = pinned. ＊ = written by AI.</li>
           <li><b>Pin from the glasses</b> — highlight a session, tap then press and hold, choose “Pin / unpin session”.</li>
         </ul>

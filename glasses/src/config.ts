@@ -14,6 +14,8 @@ const LS_SOURCE = 'conductor.source'             // which backend multiplexer to
 const LS_PINS = 'conductor.pins'                 // sessions pinned to the top of the list (client-side; see Pin)
 const LS_PREVIEW = 'conductor.preview'           // show the highlighted session's latest exchange beside the list (on unless turned off)
 const LS_SEEN_NEWS = 'conductor.seenNews'
+const LS_SUMMARY_MODEL = 'conductor.summaryModel'  // model for AI summaries + condensed replies ('' = the backend's default)
+const LS_VOICE_MODEL = 'conductor.voiceModel'      // speech-to-text model for voice ('' = the backend's default)
 const LS_USAGE_LINE = 'conductor.usageLine'      // show plan usage (Claude / Codex limits) above the list (on unless turned off)
 const LS_CONDENSE = 'conductor.condense'         // opt-in: show the latest reply condensed (same Anthropic key as the summaries)
 const LS_HIDDEN_TAGS = 'conductor.hiddenTags'    // workspaces (tags) whose sessions are left off the list — none unless the user unticks one
@@ -50,6 +52,10 @@ export function getUsageLine(): boolean { return localStorage.getItem(LS_USAGE_L
 // the last "what's new" note the user dismissed on the phone (kept with the settings: the page's own
 // localStorage does not survive a reinstall, and the Even app serves the page from changing origins)
 export function getSeenNews(): string { return localStorage.getItem(LS_SEEN_NEWS) || '' }
+// Which of the backend's offered models to use ('' = its default). The backend refuses a model it
+// does not list, so the app only ever sends one it was offered (store.ts pickModel).
+export function getSummaryModel(): string { return localStorage.getItem(LS_SUMMARY_MODEL) || '' }
+export function getVoiceModel(): string { return localStorage.getItem(LS_VOICE_MODEL) || '' }
 export function getHiddenTags(): string[] {
   try { const v = JSON.parse(localStorage.getItem(LS_HIDDEN_TAGS) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] }
 }
@@ -70,7 +76,7 @@ export function getPins(): Pin[] {
 function persist() {
   const c = getConfig()
   waitForEvenAppBridge()
-    .then((b) => b.setLocalStorage(PERSIST_KEY, JSON.stringify({ base: c.base, token: c.token, projectsDir: getProjectsDir(), openaiKeyPath: getOpenaiKeyPath(), idleSleepSec: getIdleSleepSec(), wakeOnChange: getWakeOnChange(), source: getSource(), pins: getPins(), aiSummary: getAiSummary(), preview: getPreview(), hiddenTags: getHiddenTags(), condense: getCondense(), usageLine: getUsageLine(), seenNews: getSeenNews() })))
+    .then((b) => b.setLocalStorage(PERSIST_KEY, JSON.stringify({ base: c.base, token: c.token, projectsDir: getProjectsDir(), openaiKeyPath: getOpenaiKeyPath(), idleSleepSec: getIdleSleepSec(), wakeOnChange: getWakeOnChange(), source: getSource(), pins: getPins(), aiSummary: getAiSummary(), preview: getPreview(), hiddenTags: getHiddenTags(), condense: getCondense(), usageLine: getUsageLine(), seenNews: getSeenNews(), summaryModel: getSummaryModel(), voiceModel: getVoiceModel() })))
     .catch(() => {})
 }
 
@@ -88,6 +94,8 @@ export function setPins(p: Pin[]) { localStorage.setItem(LS_PINS, JSON.stringify
 export function setCondense(on: boolean) { localStorage.setItem(LS_CONDENSE, on ? '1' : '0'); persist() }
 export function setUsageLine(on: boolean) { localStorage.setItem(LS_USAGE_LINE, on ? '1' : '0'); persist() }
 export function setSeenNews(id: string) { localStorage.setItem(LS_SEEN_NEWS, id); persist() }
+export function setSummaryModel(id: string) { localStorage.setItem(LS_SUMMARY_MODEL, id); persist() }
+export function setVoiceModel(id: string) { localStorage.setItem(LS_VOICE_MODEL, id); persist() }
 export function setHiddenTags(t: string[]) { localStorage.setItem(LS_HIDDEN_TAGS, JSON.stringify(t)); persist() }
 export function setPreview(on: boolean) { localStorage.setItem(LS_PREVIEW, on ? '1' : '0'); persist() }
 export function setAiSummary(on: boolean) { localStorage.setItem(LS_AI_SUMMARY, on ? '1' : '0'); persist() }
@@ -121,6 +129,8 @@ export async function loadPersistedConfig(): Promise<void> {
         if (c.condense != null) localStorage.setItem(LS_CONDENSE, c.condense ? '1' : '0')
         if (c.usageLine != null) localStorage.setItem(LS_USAGE_LINE, c.usageLine ? '1' : '0')
         if (c.seenNews) localStorage.setItem(LS_SEEN_NEWS, c.seenNews)
+        if (c.summaryModel) localStorage.setItem(LS_SUMMARY_MODEL, c.summaryModel)
+        if (c.voiceModel) localStorage.setItem(LS_VOICE_MODEL, c.voiceModel)
       }
     }
   } catch { /* no bridge / nothing stored -> Setup screen */ }

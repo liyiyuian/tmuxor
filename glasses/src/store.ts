@@ -1,10 +1,10 @@
 // External store + actions for the glasses control flow.
 // Screens: list <-> detail. Within detail, a phase drives the sub-state:
 //   view (scroll live pane, or MENU mode if the pane is asking) -> listening (mic) -> confirm (send).
-import { listPanes, getLimits, type Limit, paneScreen, paneConversation, paneSummary, paneCondensed, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn } from './api'
+import { listPanes, getLimits, type Limit, paneScreen, paneConversation, paneSummary, paneCondensed, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn, type Models } from './api'
 import { GlassBridgeSource } from 'even-toolkit/stt'
 import { getTextWidth, truncateGlassText } from 'even-toolkit/pretext'
-import { getIdleSleepSec, getWakeOnChange, isConfigured, getPins, setPins, getAiSummary, getPreview, getHiddenTags, getCondense, getUsageLine } from './config'
+import { getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, isConfigured, getPins, setPins, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, getCondense, getUsageLine, setUsageLine, getSummaryModel, getVoiceModel } from './config'
 
 export type Phase = 'view' | 'listening' | 'confirm'
 const SLOTS = 9
@@ -43,6 +43,9 @@ export interface AppState {
   voiceChecked: string[]  // when voice off, the locations the backend checked for a key
   canSummarize: boolean   // backend has an Anthropic key -> AI preview summaries can be offered (opt-in)
   canCondense: boolean    // …and it can condense a reply for the reading view (opt-in, its own switch)
+  models: Models | null   // the models the backend offers for summaries and voice (null: an older backend)
+  flash: string           // a short notice in the top row for a moment (a setting changed from the glasses menu)
+  settingsRev: number     // bumped when a setting is changed from the glasses, so the phone page re-reads them
   limits: Limit[]         // plan usage per account, for the line above the list (empty = none known)
   asleep: boolean    // glasses HUD blanked after inactivity (idle screen-sleep)
   phase: Phase
@@ -70,7 +73,7 @@ export interface AppState {
 let state: AppState = {
   panes: [], tags: [], loading: true, error: null, listSel: '', listPos: 0, preview: [],
   activePaneN: null, activeLabel: '', activeIsClaude: false, activeCwd: '',
-  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], canSummarize: false, canCondense: false, limits: [], previewBusy: '', asleep: false,
+  lines: [], menu: null, menuPhase: 'read', menuBody: [], menuScroll: 0, menuFreeText: false, scroll: 0, atBottom: true, working: false, activity: '', voiceOn: true, voiceChecked: [], canSummarize: false, canCondense: false, limits: [], models: null, flash: '', settingsRev: 0, previewBusy: '', asleep: false,
   phase: 'view', draft: '', draftKind: null, busy: false, status: '', typingText: '', draftLines: [], confirmScroll: 0, lastCost: 0, totalCost: 0,
   newPhase: 'tag', newText: '', newTags: [], newTagIndex: 0, newTag: '', newPath: '', newCreate: false, newStatus: '', newPaneN: null,
 }
@@ -195,6 +198,42 @@ let previewMovedAt = 0
 let previewAbort: AbortController | null = null
 // the phone's "preview" switch changed: redraw the list (rows widen/narrow) and the panel now
 export function previewSettingChanged() { set({ preview: NO_PREVIEW, previewBusy: '' }); showPreview(true) }
+// The model to ask for: the one chosen on the phone if the backend still offers it, else '' (the
+// backend's default — it refuses a model it does not list).
+function pickModel(kind: 'summary' | 'voice'): string {
+  const want = kind === 'summary' ? getSummaryModel() : getVoiceModel()
+  return want && state.models?.[kind].some((m) => m.id === want) ? want : ''
+}
+// How many characters of summary fit in `rows` rows of the preview panel: its width at this font's
+// average character width, less the mark and what word-wrapping wastes at line ends. Rounded down
+// to tens, so the backend keeps one summary per size (170 for 5 rows, 140 for 4).
+const SAMPLE = 'Build is slow because the cache key includes the timestamp; tests pass and 2 files changed.'
+const AVG_CHAR_PX = getTextWidth(SAMPLE) / SAMPLE.length
+const summaryBudget = (rows: number) => Math.max(60, Math.floor((rows * PREVIEW_PX / AVG_CHAR_PX - 3) * 0.88 / 10) * 10)
+// the phone picked another model: what was written by the old one is no longer what was asked for
+export function modelSettingChanged() {
+  for (const c of previewCache.values()) { c.sumFor = undefined; c.lines = [...c.head, ...c.raw] }
+  condensedCache.clear()
+  previewSettingChanged(); condenseSettingChanged()
+}
+// A setting picked from the glasses menu: apply it exactly as the phone's switch does, say what it
+// is now in the top row for a moment (most of these change nothing you can see at once), and let
+// the phone page, if it is open, show the new value.
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+export function menuSetting(kind: 'preview' | 'summary' | 'usage' | 'wake' | 'sleep') {
+  let msg: string
+  if (kind === 'preview') { const v = !getPreview(); setPreview(v); previewSettingChanged(); msg = `Preview ${v ? 'on' : 'off'}` }
+  else if (kind === 'summary') {
+    if (!state.canSummarize) msg = 'AI summary: no API key on the backend'
+    else { const v = !getAiSummary(); setAiSummary(v); previewSettingChanged(); msg = `AI summary ${v ? 'on' : 'off'}${v && !getPreview() ? ' (preview is off)' : ''}` }
+  }
+  else if (kind === 'usage') { const v = !getUsageLine(); setUsageLine(v); loadLimits(true); msg = `Plan usage ${v ? 'on' : 'off'}` }
+  else if (kind === 'wake') { const v = !getWakeOnChange(); setWakeOnChange(v); msg = `Wake on finish ${v ? 'on' : 'off'}` }
+  else { const v = getIdleSleepSec() ? 0 : 30; setIdleSleepSec(v); msg = v ? 'Screen sleep 30 s' : 'Screen sleep never' }
+  clearTimeout(flashTimer)
+  set({ flash: msg, settingsRev: state.settingsRev + 1 })
+  flashTimer = setTimeout(() => set({ flash: '' }), 2500)
+}
 function showPreview(moved = false) {
   if (!getPreview() || hostGone) return  // turned off on the phone, or this page is detached: no panel, no downloads, no summaries
   const now = Date.now()
@@ -237,14 +276,21 @@ function showPreview(moved = false) {
       }
       if (!c || !wantSummary()) return show()
       show('summarizing')
-      const s = await paneSummary(n)
+      // ask for a summary that fits the rows the panel has left for it (the request takes one, a
+      // "needs you" notice another), so it is shown whole instead of cut off
+      const rows = PREVIEW_ROWS - c.head.length - (state.panes.find((p) => p.n === n)?.status === 'waiting' ? 1 : 0)
+      const s = await paneSummary(n, { model: pickModel('summary'), max: summaryBudget(rows) })
       if (gen !== fleetGen || s.etag !== c.etag) return show()  // the transcript moved on: the next poll starts over
       if (s.pending) {  // being written (a couple of seconds) -> look again soon, if still on this row
         previewTimer = setTimeout(() => { if (state.listSel === n) showPreview() }, 2500)
         return
       }
       c.sumFor = c.etag  // settled for this transcript, with or without a summary
-      if (s.summary) c.lines = [...c.head, ...wrapPx(AI_MARK + ' ' + s.summary, '', PREVIEW_PX).slice(0, PREVIEW_ROWS - c.head.length)]
+      if (s.summary) {
+        // it was sized to fit; if a few wide letters still push it over, say so rather than drop the end silently
+        const w = wrapPx(AI_MARK + ' ' + s.summary, '', PREVIEW_PX)
+        c.lines = [...c.head, ...(w.length <= rows ? w : [...w.slice(0, rows - 1), truncateGlassText(w[rows - 1] + ' …', PREVIEW_PX)])]
+      }
       show()
     } catch {
       // offline, or the request failed: what is shown stays, without a promise of more. (Superseded
@@ -338,7 +384,7 @@ export async function refresh() {
     const sig = JSON.stringify(panes)
     if (sig !== lastPanesSig) { lastPanesSig = sig; set({ ...withSel(panes), loading: false, error: null }) }  // skip identical re-push
     else if (state.loading || state.error) set({ loading: false, error: null })
-    health().then((h) => set({ voiceOn: h.voice, voiceChecked: h.checked || [], canSummarize: !!h.summary, canCondense: !!h.condense })).catch(() => {})
+    health().then((h) => set({ voiceOn: h.voice, voiceChecked: h.checked || [], canSummarize: !!h.summary, canCondense: !!h.condense, models: h.models ?? null })).catch(() => {})
     showPreview()  // keep the highlighted session's preview current
     loadLimits()
   } catch (e) { if (gen === fleetGen) set({ loading: false, error: String(e) }) }
@@ -558,6 +604,7 @@ function lastPromptIndex(lines: string[]): number {
 // `condensed` = the latest reply (everything after the last prompt) in its condensed form, shown in
 // its place and marked ~; `condensing` = one is being written, so say so above the full reply —
 // otherwise you start reading text that is about to be replaced.
+const QUEUED = '◇ queued: '
 function renderTurns(turns: Turn[], queued: string[] = [], condensed: string | null = null, condensing = false): string[] {
   let lastUser = -1
   turns.forEach((t, i) => { if (t.role === 'user') lastUser = i })
@@ -570,6 +617,10 @@ function renderTurns(turns: Turn[], queued: string[] = [], condensed: string | n
       // ▶ marks the prompt; indent its continuation lines 2 so a multi-line prompt reads as one
       // left-shifted block (without the indent, lines 2+ look exactly like the assistant's reply)
       t.text.split('\n').forEach((l, i) => add(i === 0 ? '▶ ' + l : (l.trim() ? '  ' + l : l)))
+      // prompts waiting in the agent's queue (sent while it was busy) go right under the latest
+      // prompt — where the view is anchored — one clipped line each. (At the very end, below a
+      // long reply, they were off-screen and looked as if they had not arrived.)
+      if (ti === lastUser) queued.forEach((q) => add(QUEUED + q))
       add('')                                         // gap before the answer
     } else if (ti > lastUser && condensed) {
       if (!noted) { noted = true; condensed.split('\n').forEach((l, i) => add(i === 0 ? AI_MARK + ' ' + l : l)) }
@@ -583,11 +634,10 @@ function renderTurns(turns: Turn[], queued: string[] = [], condensed: string | n
   const out: string[] = []
   for (const l of logical) {
     if (l === '' || l === DIVIDER) out.push(l)
+    else if (l.startsWith(QUEUED)) out.push(truncateGlassText(l))
     else out.push(...wrapPx(l, hangIndent(l)))
   }
-  // prompts waiting in the agent's queue (sent while it was busy): one clipped line each, so you
-  // can see they arrived without them reading as part of the conversation
-  if (queued.length) { out.push(''); for (const q of queued) out.push(truncateGlassText('◇ queued: ' + q)) }
+  if (lastUser < 0 && queued.length) for (const q of queued) out.push(truncateGlassText(QUEUED + q))  // nothing typed yet
   return out
 }
 function buildView() {
@@ -637,7 +687,7 @@ function maybeCondense(n: string) {
   if (!reply || condensedCache.get(n)?.reply === reply || Date.now() - lastActivity > SUMMARY_IDLE_MS) return
   condenseAsk = n
   const etag = convoEtag
-  paneCondensed(n).then((r) => {
+  paneCondensed(n, pickModel('summary')).then((r) => {
     if (state.activePaneN !== n || r.etag !== etag) return  // moved on, or the transcript did: the next poll asks afresh
     if (!r.pending) condensedCache.set(n, { reply, text: r.summary ?? null })
     if (!wantShort(n)) { condensing = false; return }       // switched to the full reply meanwhile: keep the result, show nothing
@@ -1013,7 +1063,7 @@ export async function stopVoice() {
     const wav = pcmToWav(pcm, micRate); pcm = []
     set({ phase: 'confirm', busy: true, status: 'transcribing…' })
     try {
-      const res = await transcribe(wav)
+      const res = await transcribe(wav, pickModel('voice'))
       text = res.text
       set({ lastCost: res.cost || 0, totalCost: state.totalCost + (res.cost || 0) })
     } catch { set({ phase: 'listening', status: 'transcribe failed — tap to retry' }); beginMic(); return }
@@ -1148,7 +1198,7 @@ async function captureNewVoice(retryPhase: 'tagvoice' | 'listening', debug: stri
     const wav = pcmToWav(pcm, micRate); pcm = []
     set({ newStatus: 'transcribing…' })
     try {
-      const res = await transcribe(wav)
+      const res = await transcribe(wav, pickModel('voice'))
       text = res.text
       set({ lastCost: res.cost || 0, totalCost: state.totalCost + (res.cost || 0) })
     } catch { set({ newPhase: retryPhase, newStatus: "didn't catch that — tap to retry" }); return null }

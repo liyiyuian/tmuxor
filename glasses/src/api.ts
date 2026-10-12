@@ -48,11 +48,16 @@ export async function listPanes(claudeOnly = true): Promise<Pane[]> {
 // gate the talk gesture instead of failing on transcribe. Sends the token: the backend honors
 // the caller's key-file path and reports where it looked ONLY for authed callers (those are
 // gated behind auth so an unauthenticated tailnet peer can't probe arbitrary files).
+const modelQ = (m?: string) => !!m && `model=${encodeURIComponent(m)}`
 const keyPathQ = () => { const p = getOpenaiKeyPath(); return p ? `keypath=${encodeURIComponent(p)}` : '' }
 // `sources` = which backends this machine can serve (authed-only); `source` = its default.
 // The phone shows a picker only when >1 is offered; absent (older backend) => tmux only.
 // `summary` = the backend has an Anthropic key and can write AI summaries (it only does when asked).
-export async function health(): Promise<{ ok: boolean; voice: boolean; checked?: string[]; sources?: string[]; source?: string; summary?: boolean; condense?: boolean }> {
+// The models the backend offers, with list prices: Anthropic for summaries / condensed replies
+// (USD per million tokens in / out), OpenAI speech-to-text for voice (USD per minute of audio).
+export interface ModelChoice { id: string; label: string; in?: number | null; out?: number | null; per_min?: number | null }
+export interface Models { summary: ModelChoice[]; summary_default: string; voice: ModelChoice[]; voice_default: string }
+export async function health(): Promise<{ ok: boolean; voice: boolean; checked?: string[]; sources?: string[]; source?: string; summary?: boolean; condense?: boolean; models?: Models }> {
   const r = await fetch(`${base()}/api/health${qs(keyPathQ())}`, { headers: authHeaders() })
   if (!r.ok) throw new Error(`health ${r.status}`)
   return r.json()
@@ -85,16 +90,18 @@ export async function paneConversation(n: string, etag?: string | null, opts: { 
 
 // Opt-in AI summary of a session's latest exchange (written by the backend with the user's own
 // Anthropic key). `pending` = it is being written, ask again; `etag` = the transcript state it is for.
-export async function paneSummary(n: string): Promise<{ summary?: string | null; pending?: boolean; etag?: string | null }> {
-  const r = await fetch(`${base()}/api/panes/${pid(n)}/summary${qs(srcParam())}`, { headers: authHeaders(), cache: 'no-store' })
+// `max` = how many characters the preview can show; `model` = one of the backend's offered models
+// ('' = its default). An older backend ignores both.
+export async function paneSummary(n: string, o: { model?: string; max?: number } = {}): Promise<{ summary?: string | null; pending?: boolean; etag?: string | null }> {
+  const r = await fetch(`${base()}/api/panes/${pid(n)}/summary${qs(srcParam(), modelQ(o.model), !!o.max && `max=${o.max}`)}`, { headers: authHeaders(), cache: 'no-store' })
   if (!r.ok) throw new Error(`paneSummary ${r.status}`)
   return r.json()
 }
 
 // Opt-in condensed version of a session's latest reply, for the reading view. Same shape and rules
 // as paneSummary; `summary` null = nothing to condense (the reply is short, declined, …): show it whole.
-export async function paneCondensed(n: string): Promise<{ summary?: string | null; pending?: boolean; etag?: string | null }> {
-  const r = await fetch(`${base()}/api/panes/${pid(n)}/condensed${qs(srcParam())}`, { headers: authHeaders(), cache: 'no-store' })
+export async function paneCondensed(n: string, model = ''): Promise<{ summary?: string | null; pending?: boolean; etag?: string | null }> {
+  const r = await fetch(`${base()}/api/panes/${pid(n)}/condensed${qs(srcParam(), modelQ(model))}`, { headers: authHeaders(), cache: 'no-store' })
   if (!r.ok) throw new Error(`paneCondensed ${r.status}`)
   return r.json()
 }
@@ -110,11 +117,12 @@ export async function getLimits(): Promise<Limit[]> {
   return Array.isArray(d.limits) ? d.limits : []
 }
 
-// What the backend's paid API calls cost — today and the last 7 days, per provider and model.
-// `since` (seconds) is set when the backend has been counting for less than 7 days. Null from a
-// backend that predates this.
+// What the backend's paid API calls cost — today, the last 7 days and all time, per provider and
+// model. `start` (seconds) = when its records begin; `since` = the same, set only when that is
+// less than 7 days ago. `all` / `start` are missing from an older backend; the whole thing is null
+// from one that predates this.
 export interface UsageRow { provider: string; model: string; calls: number; in: number; out: number; seconds: number; usd: number; unpriced: number }
-export interface Usage { today: UsageRow[]; week: UsageRow[]; since: number | null }
+export interface Usage { today: UsageRow[]; week: UsageRow[]; all?: UsageRow[]; since: number | null; start?: number | null }
 export async function getUsage(): Promise<Usage | null> {
   const r = await fetch(`${base()}/api/usage`, { headers: authHeaders(), cache: 'no-store' })
   if (!r.ok) return null
@@ -152,9 +160,10 @@ export async function translate(description: string, cwd: string): Promise<strin
   return (await r.json()).command
 }
 
-// Send captured WAV audio to the server -> OpenAI Whisper -> transcript + cost (USD).
-export async function transcribe(wav: Blob): Promise<{ text: string; cost: number; seconds: number }> {
-  const r = await fetch(`${base()}/api/transcribe${qs(keyPathQ())}`, { method: 'POST', headers: authHeaders(), body: wav })
+// Send captured WAV audio to the server -> OpenAI speech-to-text (`model`: one the backend offers,
+// '' = its default, Whisper) -> transcript + cost (USD).
+export async function transcribe(wav: Blob, model = ''): Promise<{ text: string; cost: number; seconds: number }> {
+  const r = await fetch(`${base()}/api/transcribe${qs(keyPathQ(), modelQ(model))}`, { method: 'POST', headers: authHeaders(), body: wav })
   if (!r.ok) throw new Error(`transcribe ${r.status}`)
   return r.json()
 }

@@ -11,8 +11,27 @@ project memory; this file is the short "what changed" for each build.
   — in the session list it jumps to the next session waiting on you below the highlighted row, and
   with none below, back to the top — and **Condensed / full reply**, which switches an open
   session's latest reply (with "Condensed replies" on; reopening starts from the phone's setting
-  again), next to **Pin / unpin session**. A plain press and hold is not used: on the glasses it
-  arrives as an ordinary tap first, so it could never be told apart from one in time.
+  again), next to **Pin / unpin session**. It also has quick switches for settings you may want to
+  flip without the phone: **Preview**, **AI summary**, **Plan usage**, **Wake on finish** and
+  **Sleep: never / 30 s**; the top row says what changed for a moment, and the phone page follows.
+  A plain press and hold is not used: on the glasses it arrives as an ordinary tap first, so it
+  could never be told apart from one in time.
+- **Choose the models.** The phone's settings list the models your backend offers, cheapest first
+  with list prices: for AI summaries and condensed replies Claude Haiku 5.5 (the default, and the
+  cheapest Anthropic model), Sonnet 5.5 or Opus 5.5; for voice, OpenAI Whisper (default), GPT-4o
+  mini Transcribe (half the price) or GPT-4o Transcribe. Needs the updated backend.
+- **AI summaries fit the preview.** The app tells the backend how many characters the preview
+  panel can show (fewer when a "needs you" line takes a row); the model is asked for less than
+  that and the text is held to it, ending at a whole sentence where it can. Before, a summary
+  could run past the panel and lose its end. Needs the updated backend.
+- **Fix: prompts sent while the agent was busy went missing.** Claude Code hands such a prompt to
+  the agent in the middle of its turn and records it differently from a normal prompt; the
+  reading view skipped those, so the conversation showed the replies without the prompts that
+  caused them. They are shown now. While still waiting, queued prompts appear right under the
+  latest prompt instead of at the far end of a long reply. Needs the updated backend.
+- **API cost: all time.** A third total next to Today and Last 7 days, with the date the records
+  start. Needs the updated backend.
+- **Settings order.** Workspaces, then Sessions, then On the glasses.
 - **The list follows your layout.** Sessions are in Herdr's own order — workspaces, then tabs —
   with pinned ones on top. A session that finished since you last opened it (●) comes up to the top
   and goes back to its place once you open it; working, idle and needs-you sessions stay where

@@ -3,7 +3,7 @@ import { useGlasses } from 'even-toolkit/useGlasses'
 import { EvenAppBridge, OsEventTypeList, pickLoose, waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
 import {
   getSnapshot, subscribe, refresh, noteActivity, idleTick,
-  listRows, listRow, selectRow, togglePin, toggleShortView, jumpToAttention,
+  listRows, listRow, selectRow, togglePin, toggleShortView, jumpToAttention, menuSetting,
   openPane, closePane, scrollDetail, startVoice, stopVoice, cancelInput,
   redoVoice, sendNow, scrollConfirm,
   pickMenuOption, menuTabNext, submitMenu, scrollMenu, menuToPick, menuToRead, jumpToLatest,
@@ -74,10 +74,17 @@ bridge.onEvenHubEvent = (cb) => listen((e) => {
 // The labels are fixed (they only change with a page build), so each is one plain verb; an item
 // that does not apply where you are does nothing.
 const MENU_PIN = 1, MENU_NEXT = 2, MENU_VIEW = 3
+// settings you may want to flip without taking the phone out; the result shows in the top row
+const MENU_SETTINGS: Record<number, Parameters<typeof menuSetting>[0]> = { 4: 'preview', 5: 'summary', 6: 'usage', 7: 'wake', 8: 'sleep' }
 const menuObject = { menuItems: [
   { itemName: 'Next that needs you', itemID: MENU_NEXT },
   { itemName: 'Condensed / full reply', itemID: MENU_VIEW },
   { itemName: 'Pin / unpin session', itemID: MENU_PIN },
+  { itemName: 'Preview on / off', itemID: 4 },
+  { itemName: 'AI summary on / off', itemID: 5 },
+  { itemName: 'Plan usage on / off', itemID: 6 },
+  { itemName: 'Wake on finish on / off', itemID: 7 },
+  { itemName: 'Sleep: never / 30 s', itemID: 8 },
 ] }
 // what each text container on the glasses currently shows (see the dedup below); a page build
 // replaces the containers, so it empties this
@@ -107,10 +114,11 @@ let lastNav: GlassNavState = { screen: 'list', highlightedIndex: 0 }
 // Next that needs you: in the list, the next waiting session below the highlight (else the top).
 // Condensed / full reply: the open session's latest reply (when Condensed replies is on).
 function onMenu(id?: number) {
-  if (id !== MENU_PIN && id !== MENU_NEXT && id !== MENU_VIEW) return
+  if (id == null || !menuObject.menuItems.some((m) => m.itemID === id)) return
   const s = getSnapshot()
   noteActivity()
-  if (id === MENU_NEXT) { if (!s.activePaneN && lastNav.screen === 'list') jumpToAttention() }
+  if (MENU_SETTINGS[id]) menuSetting(MENU_SETTINGS[id])
+  else if (id === MENU_NEXT) { if (!s.activePaneN && lastNav.screen === 'list') jumpToAttention() }
   else if (id === MENU_VIEW) toggleShortView()
   else { const n = s.activePaneN ?? (lastNav.screen === 'list' ? listRows(s)[listRow(s)] : ''); if (n) togglePin(n) }
 }
