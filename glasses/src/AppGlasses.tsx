@@ -148,7 +148,7 @@ export function App() {
     let unsubMenu: (() => void) | undefined
     waitForEvenAppBridge()
       .then((b) => {
-        unsub = b.onLaunchSource(() => { refresh() })
+        unsub = b.onLaunchSource(() => { refresh(true) })
         unsubMenu = b.onEvenHubEvent((e) => onMenu(e.menuItemClickEvent?.itemID))
       })
       .catch(() => {})
@@ -186,7 +186,11 @@ export function App() {
       if (s.menu) return 'columns'             // permission prompt: READ-scroll + PICK-move need swipe
       if (s.phase === 'view') return 'columns'
       if (s.phase === 'confirm' && !s.busy) return 'columns'
-      return 'text'                            // listening / confirm-busy
+      // listening / transcribing with the conversation still on screen (screens.ts): the same page
+      // as the reading view, so swipes keep scrolling it (a text page does not forward swipes on
+      // the real glasses) and there is no page rebuild on the way in or out
+      if (s.lines.length > 1) return 'columns'
+      return 'text'                            // listening / confirm-busy with nothing to read
     },
   })
 

@@ -73,19 +73,24 @@ export async function paneScreen(n: string, lines = 40): Promise<string> {
 // flattened, in-between stripped, oldest→newest.
 export interface Turn { role: 'user' | 'assistant'; text: string }
 // `queued` = prompts typed while the agent was busy that it has not taken up yet (first line of each)
-export interface ConvoResult { turns: Turn[]; working: boolean; etag: string | null; notModified: boolean; queued: string[] }
+export interface ConvoResult { turns: Turn[]; working: boolean; etag: string | null; notModified: boolean; queued: string[]; start?: number; prompts?: number }
 // Passes the last etag via ?etag=; an unchanged transcript returns a tiny
 // {notModified:true} 200 (server skips read/parse/serialize). Plain 200s only — no
 // HTTP 304, which the WebView's fetch rejects when combined with cache:'no-store'.
 // `tail` asks for only the latest prompt + the end of its reply (the list preview) — a couple of KB
 // instead of the whole conversation. An older backend ignores it and returns everything, which works.
-export async function paneConversation(n: string, etag?: string | null, opts: { tail?: boolean; signal?: AbortSignal } = {}): Promise<ConvoResult> {
-  const u = `${base()}/api/panes/${pid(n)}/conversation` + qs(etag ? `etag=${encodeURIComponent(etag)}` : '', opts.tail && 'tail=1', srcParam())
+// `turns` = only the last N turns; `from` = everything from turn K (see store.ts: the reading view
+// loads the recent part and fetches earlier messages when you scroll up to them). The answer says
+// where it starts (`start`) and how many prompts the whole conversation has (`prompts`); an older
+// backend ignores both parameters and sends everything.
+export async function paneConversation(n: string, etag?: string | null, opts: { tail?: boolean; signal?: AbortSignal; turns?: number; from?: number } = {}): Promise<ConvoResult> {
+  const u = `${base()}/api/panes/${pid(n)}/conversation` + qs(etag ? `etag=${encodeURIComponent(etag)}` : '', opts.tail && 'tail=1',
+    opts.from != null && `from=${opts.from}`, !!opts.turns && `turns=${opts.turns}`, srcParam())
   const r = await fetch(u, { headers: authHeaders(), cache: 'no-store', signal: opts.signal })
   if (!r.ok) throw new Error(`paneConversation ${r.status}`)
   const data = await r.json()
   if (data.notModified) return { turns: [], working: false, etag: data.etag ?? etag ?? null, notModified: true, queued: [] }
-  return { turns: data.turns, working: data.working, etag: data.etag ?? null, notModified: false, queued: data.queued ?? [] }
+  return { turns: data.turns, working: data.working, etag: data.etag ?? null, notModified: false, queued: data.queued ?? [], start: data.start ?? 0, prompts: data.prompts }
 }
 
 // Opt-in AI summary of a session's latest exchange (written by the backend with the user's own

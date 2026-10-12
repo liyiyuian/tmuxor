@@ -97,7 +97,7 @@ function Root() {
   return (
     <>
       <MemoryRouter><App /></MemoryRouter>
-      <Setup onSave={() => { refresh() }} />
+      <Setup onSave={() => { refresh(true) }} />
       <PhoneInput />
     </>
   )

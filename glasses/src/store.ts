@@ -355,7 +355,14 @@ export function loadLimits(force = false) {
   getLimits().then((l) => { if (JSON.stringify(l) !== JSON.stringify(state.limits)) set({ limits: l }) }).catch(() => {})
 }
 let fleetGen = 0 // bumped on a backend switch so an in-flight poll from the OLD source is discarded
-export async function refresh() {
+// What a 5-second list poll does NOT need to repeat every time:
+// - /api/health (voice available? which models?) changes only when the backend's settings do: once
+//   a minute, and at once when asked (a config change on the phone, an app launch);
+// - the highlighted session's preview: every poll while that session is busy or asking and when its
+//   status has just changed, but an idle session's transcript moves only if you type at the
+//   computer, so every 30 s is plenty. Moving the highlight always loads its preview at once.
+let lastHealthAt = 0, lastPreviewAt = 0, lastPreviewKey = ''
+export async function refresh(force = false) {
   // Do NOT hit the network before the user has entered a backend URL + token: with an empty base
   // the fetch would go to a RELATIVE /api/panes (the app's own origin) and 404 — which the Even Hub
   // review harness flags as a 4xx. Stay idle until configured (the phone shows Setup meanwhile).
@@ -384,8 +391,16 @@ export async function refresh() {
     const sig = JSON.stringify(panes)
     if (sig !== lastPanesSig) { lastPanesSig = sig; set({ ...withSel(panes), loading: false, error: null }) }  // skip identical re-push
     else if (state.loading || state.error) set({ loading: false, error: null })
-    health().then((h) => set({ voiceOn: h.voice, voiceChecked: h.checked || [], canSummarize: !!h.summary, canCondense: !!h.condense, models: h.models ?? null })).catch(() => {})
-    showPreview()  // keep the highlighted session's preview current
+    const now = Date.now()
+    if (force || now - lastHealthAt >= 60_000) {
+      lastHealthAt = now
+      health().then((h) => set({ voiceOn: h.voice, voiceChecked: h.checked || [], canSummarize: !!h.summary, canCondense: !!h.condense, models: h.models ?? null })).catch(() => { lastHealthAt = 0 })
+    }
+    const sel = panes.find((p) => p.n === state.listSel), key = sel ? `${sel.n} ${sel.status} ${sel.done}` : ''
+    if (force || key !== lastPreviewKey || (sel && sel.status !== 'idle') || now - lastPreviewAt >= 30_000) {
+      lastPreviewKey = key; lastPreviewAt = now
+      showPreview()  // keep the highlighted session's preview current
+    }
     loadLimits()
   } catch (e) { if (gen === fleetGen) set({ loading: false, error: String(e) }) }
 }
@@ -590,7 +605,17 @@ let convoLines: string[] = []
 let jumpToPrompt = false // FIRST open of a pane: land on the latest question
 // per-pane scroll memory: re-opening a pane resumes where you left off (not the latest
 // question). First-ever open this run has no entry -> jumpToPrompt. Reset on app reload.
-const paneMem = new Map<string, { scroll: number; atBottom: boolean; promptCount: number; scrolledAway: boolean }>()
+const paneMem = new Map<string, { scroll: number; atBottom: boolean; promptCount: number; scrolledAway: boolean; start: number | null }>()
+// The reading view loads the RECENT part of a conversation (a long session's whole history is
+// hundreds of KB, downloaded and laid out again on every change) and fetches earlier messages when
+// you scroll up to the top. `convoStart` = the turn the loaded part begins at (null = not loaded
+// yet); it stays put while a session is open or remembered, so the loaded part only grows at its
+// end and line positions stay valid.
+const CONVO_TURNS = 60, CONVO_MORE = 180
+let convoStart: number | null = null
+let pullConvo: (() => void) | null = null   // fetch the open session's conversation now
+let convoPrepend: { len: number; scroll: number } | null = null  // earlier messages are being loaded: keep the view where it was
+const EARLIER = '▲ earlier messages: swipe up to load'
 let pendingRestore: { scroll: number; atBottom: boolean; promptCount: number; scrolledAway: boolean } | null = null
 let convoPromptCount = 0 // # of user questions in the current conversation (for new-question detection)
 let convoEtag: string | null = null // last conversation ETag -> 304 skips re-fetch/parse
@@ -675,7 +700,8 @@ const wantShort = (n: string | null) => !!n && getCondense() && !showFull
 function renderConvo(): string[] {
   const hit = wantShort(state.activePaneN) && !convoWorking && state.activePaneN ? condensedCache.get(state.activePaneN) : undefined
   const ok = hit && hit.reply === latestReply(convoTurns)
-  return renderTurns(convoTurns, convoQueued, ok ? hit.text : null, condensing && !ok && wantShort(state.activePaneN))
+  const lines = renderTurns(convoTurns, convoQueued, ok ? hit.text : null, condensing && !ok && wantShort(state.activePaneN))
+  return convoStart ? [EARLIER, '', ...lines] : lines
 }
 // Ask for the condensed reply when it is wanted and not known yet. `pending` answers are picked up by
 // the conversation poll calling this again (every 2.5 s). Same limits as the preview summaries: only
@@ -727,12 +753,17 @@ export function jumpToAttention() {
   const i = rows.findIndex((p, k) => k > at && p.status === 'waiting')
   selectRow(rows[i < 0 ? 0 : i].n)
 }
-function applyConversation(turns: Turn[], working: boolean, queued: string[] = []) {
+function applyConversation(turns: Turn[], working: boolean, queued: string[] = [], prompts?: number) {
   convoTurns = turns; convoQueued = queued; convoWorking = working
   if (working) condensing = false
   convoLines = renderConvo()
-  convoPromptCount = turns.reduce((n, t) => n + (t.role === 'user' ? 1 : 0), 0)
-  if (jumpToPrompt) {
+  // the whole conversation's prompt count (the loaded part may be only its end)
+  convoPromptCount = prompts ?? turns.reduce((n, t) => n + (t.role === 'user' ? 1 : 0), 0)
+  if (convoPrepend) {
+    // earlier messages arrived above what was on screen: stay on the same line
+    const p = convoPrepend; convoPrepend = null; userScrolled = true
+    set({ working, atBottom: false, scroll: Math.max(0, convoLines.length - p.len + p.scroll) })
+  } else if (jumpToPrompt) {
     // FIRST open this run: start at the most recent question (read question -> answer)
     jumpToPrompt = false
     set({ working, atBottom: false, scroll: lastPromptIndex(convoLines) })
@@ -846,16 +877,24 @@ export function openPane(n: string, label: string, isClaude: boolean, cwd: strin
     pendingRestore = mem ?? null   // returning -> resume where they left off
     convoEtag = null; lastLiveSig = ''; userScrolled = false  // fresh pane -> force a full first fetch
     convoTurns = []; convoQueued = []; convoWorking = false; condensing = false; showFull = false
-    const pull = () => paneConversation(n, convoEtag).then((r) => {
+    convoStart = mem?.start ?? null; convoPrepend = null
+    // `from` keeps the loaded part anchored; `turns` is what the backend falls back to if that turn no longer exists
+    const pull = () => paneConversation(n, convoEtag, { turns: CONVO_TURNS, ...(convoStart == null ? {} : { from: convoStart }) }).then((r) => {
       if (state.activePaneN !== n) return
       if (!r.notModified) {  // (a 304 means nothing changed)
         convoEtag = r.etag
-        applyConversation(r.turns, r.working, r.queued)
+        convoStart = r.start ?? 0
+        if (state.status === 'loading earlier…') set({ status: '' })
+        applyConversation(r.turns, r.working, r.queued, r.prompts)
       }
       maybeCondense(n)  // also on a 304: that is how a condensed reply still being written is picked up
-    }).catch(() => {})
+    }).catch(() => { if (convoPrepend) { convoPrepend = null; set({ status: '' }) } })
+    pullConvo = pull
     pull()
-    answersTimer = setInterval(pull, 2500)
+    // every 2.5 s while the session is working (or a condensed reply is being written); a session
+    // that is sitting idle changes only when you send something, so look half as often
+    let tick = 0
+    answersTimer = setInterval(() => { if (convoWorking || state.working || condensing || ++tick % 2 === 0) pull() }, 2500)
     es = streamPane(n, (t) => { if (state.activePaneN === n) updateLive(t) })
   } else {
     paneScreen(n, 80).then((t) => { if (state.activePaneN === n) applyScreen(t) }).catch(() => {})
@@ -867,7 +906,7 @@ export function closePane() {
   // scrolled anywhere in this view; a reopen then RESUMES there. If they never scrolled (just
   // read the jumped-to latest prompt), a reopen re-anchors on the latest prompt.
   if (state.activePaneN && state.activeIsClaude) {
-    paneMem.set(state.activePaneN, { scroll: state.scroll, atBottom: state.atBottom, promptCount: convoPromptCount, scrolledAway: userScrolled })
+    paneMem.set(state.activePaneN, { scroll: state.scroll, atBottom: state.atBottom, promptCount: convoPromptCount, scrolledAway: userScrolled, start: convoStart })
     // Closing counts as having SEEN this session. The fleet poll is paused while a pane is open, so
     // prevStatus still holds the pre-open value ('working'); without this, the first post-close poll
     // would see working->idle for a completion the user just watched and false-pin it in the done
@@ -910,6 +949,14 @@ let scrollTs = 0
 let scrollDir: 'up' | 'down' | null = null
 let scrollStep = SCROLL_BASE
 export function scrollDetail(dir: 'up' | 'down') {
+  // at the very top with earlier messages not loaded yet: fetch them (the view stays on this line)
+  if (dir === 'up' && state.scroll === 0 && convoStart && !convoPrepend && state.activePaneN && state.activeIsClaude) {
+    convoPrepend = { len: convoLines.length, scroll: state.scroll }
+    convoStart = Math.max(0, convoStart - CONVO_MORE); convoEtag = null
+    set({ status: 'loading earlier…' })
+    pullConvo?.()
+    return
+  }
   userScrolled = true  // any manual scroll -> a reopen resumes here instead of jumping to latest
   const now = Date.now()
   const sustained = dir === scrollDir && now - scrollTs < SCROLL_WINDOW_MS

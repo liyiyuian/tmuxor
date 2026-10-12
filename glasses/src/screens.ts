@@ -231,6 +231,18 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
       ] }
     }
     const title = (s.panes.find((p) => p.n === s.activePaneN)?.pinned ? PIN + ' ' : '') + clip(s.activeLabel || 'session', 18)
+    // While you speak, and while that is being transcribed, the conversation stays on screen and
+    // scrollable (swipe) — the screen changes only when there is something new to read: what you
+    // said. Not for a question's free-text answer (the question itself is what matters there) and
+    // not when there is nothing to read yet.
+    if ((s.phase === 'listening' || (s.phase === 'confirm' && s.busy)) && !s.menu && s.lines.length > 1) {
+      const top = Math.max(0, Math.min(s.scroll, Math.max(0, s.lines.length - 1)))
+      const up = top > 0 ? '▲' : ' ', dn = top + VIEW_SLOTS < s.lines.length ? '▼' : ' '
+      const note = s.phase === 'confirm' ? (s.status || 'working…')
+        : s.typingText ? 'typing: ' + s.typingText
+          : s.status || (s.voiceOn ? `LISTENING ${up}${dn}  tap=done ◀◀=cancel` : `TYPE ON PHONE ${up}${dn}  ◀◀=cancel`)
+      return { lines: [line(truncateGlassText('● ' + note), 'normal'), ...s.lines.slice(top, top + VIEW_SLOTS).map((l) => line(truncateGlassText(l), 'meta'))] }
+    }
     if (s.phase === 'listening') {
       return { lines: [
         ...glassHeader(title, s.typingText ? 'TYPING' : (s.voiceOn ? 'LISTENING' : 'TYPE ON PHONE')),
@@ -324,9 +336,11 @@ const detailScreen: GlassScreen<AppState, Ctx> = {
     if (s.phase === 'listening') {
       if (a.type === 'SELECT_HIGHLIGHTED') ctx.stopVoice()
       else if (a.type === 'GO_BACK') ctx.cancelInput()
+      else if (a.type === 'HIGHLIGHT_MOVE' && !s.menu) ctx.scrollDetail(a.direction)  // keep reading while you speak
       return nav
     }
     if (s.phase === 'confirm') {
+      if (s.busy) { if (a.type === 'HIGHLIGHT_MOVE' && !s.menu) ctx.scrollDetail(a.direction); return nav }  // still transcribing: nothing to send or redo yet
       if (a.type === 'SELECT_HIGHLIGHTED') ctx.sendNow()
       else if (a.type === 'HIGHLIGHT_MOVE') ctx.scrollConfirm(a.direction)  // swipe = scroll the transcript
       else if (a.type === 'GO_BACK') ctx.redoVoice()                        // double-tap = back to recording (redo)
