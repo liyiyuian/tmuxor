@@ -6,7 +6,8 @@ project memory; this file is the short "what changed" for each build.
 > Builds: G2C ships as a single **public** `.ehpk` — it bakes no secrets, so every user
 > enters their own backend URL + token on the app's Setup screen.
 
-## 1.0.39 — 2026-10-09
+## 1.0.40 — 2026-10-12
+*(1.0.39 was a test build and was never published; this entry covers both.)*
 - **Preview beside the list.** The right two thirds of the session list is now a panel for the
   highlighted session: its full name, a rule, then its latest exchange — your last prompt and the
   end of the reply — so you can tell what a session is doing, or what it concluded, without opening
@@ -24,8 +25,9 @@ project memory; this file is the short "what changed" for each build.
   phone's settings offer "Summarize list previews with Claude Haiku". When on, the preview shows a
   one-line summary (marked `~`) that leads with what the session is waiting on. Your backend sends
   the highlighted session's latest request and the end of its reply to Anthropic under your key:
-  once per change, never while the session is still working, and never again for a transcript that
-  was declined or failed. Needs the updated backend (`conductor_api.py`); without it, or with the
+  once per change in the words being summarized (not every time the transcript file is touched),
+  never while the session is still working, never from a page you haven't touched for 10 minutes,
+  and never again for a transcript that was declined or failed. Needs the updated backend (`conductor_api.py`); without it, or with the
   switch off, you get the plain preview and no extra requests.
 - **Fix: an error could be reported thousands of times a minute.** The Even app's web view reports
   every network request a plugin makes to the host app; when that host call fails, the failure is

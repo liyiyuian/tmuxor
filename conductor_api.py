@@ -166,7 +166,10 @@ SUMMARY_SYSTEM = (
 # on the shared _POOL a few slow ones would starve the per-pane captures behind the 5s fleet poll.
 _SUM_POOL = ThreadPoolExecutor(max_workers=2)
 _SUM_LOCK = threading.Lock()
-_SUM_CACHE = {}       # pane_id -> (etag, summary-or-None); None = asked, nothing usable -> don't ask again for this transcript
+_SUM_CACHE = {}       # pane_id -> (etag, summary-or-None, text); None = asked, nothing usable -> don't ask again.
+                      # `text` = the exact (request, reply tail) that was summarized: the transcript FILE changes far
+                      # more often than those words do (bookkeeping records, a busy/idle flip), and the same words
+                      # must never be sent twice — seen 2026-10-12: one session summarized 26 times, same input.
 _SUM_BUSY = set()     # pane_ids with a summary being written
 _sum_retry_at = 0.0   # after a rate-limit / server error, make no summary calls until this time
 
@@ -256,13 +259,18 @@ def _last_exchange(turns):
 
 def _summarize_job(pid, jsonl, etag):
     global _sum_retry_at
-    result, keep = None, True
+    result, keep, text = None, True, None
     try:
         turns = tc.read_conversation(jsonl)
         u = max((i for i, t in enumerate(turns) if t["role"] == "user"), default=-1)
         reply = "\n".join(t["text"] for t in turns[u + 1:] if t["role"] == "assistant").strip()
-        if reply:
-            result = summarize_exchange(turns[u]["text"][:SUMMARY_PROMPT_CHARS] if u >= 0 else "", reply[-SUMMARY_MAX_CHARS:])
+        text = (turns[u]["text"][:SUMMARY_PROMPT_CHARS] if u >= 0 else "", reply[-SUMMARY_MAX_CHARS:])
+        with _SUM_LOCK:
+            prev = _SUM_CACHE.get(pid)
+        if prev and prev[2] == text:
+            result = prev[1]                 # new transcript state, same words: reuse, no model call
+        elif reply:
+            result = summarize_exchange(*text)
     except urllib.error.HTTPError as e:
         print(f"[summary] {SUMMARY_MODEL} failed: HTTP {e.code}", flush=True)   # a failed call must be visible too
         if e.code == 429 or e.code >= 500:   # transient: try this transcript again, but not for a minute
@@ -275,7 +283,7 @@ def _summarize_job(pid, jsonl, etag):
         _SUM_BUSY.discard(pid)
         if keep:
             _SUM_CACHE.pop(pid, None)
-            _SUM_CACHE[pid] = (etag, result)
+            _SUM_CACHE[pid] = (etag, result, text)
             while len(_SUM_CACHE) > 64:      # bound memory: panes come and go over the service's lifetime
                 _SUM_CACHE.pop(next(iter(_SUM_CACHE)))
 
