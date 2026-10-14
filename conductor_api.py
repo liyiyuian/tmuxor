@@ -38,6 +38,7 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -229,7 +230,7 @@ def usage_report(now=None):
 #   * LIMITS_FILE (optional): a file another tool keeps, shaped
 #     {"data": {"<label>": {"util": 0.26, "week_util": 0.44, "reset_epoch": …, "week_reset_epoch": …}}}
 #     with fractions 0..1;
-#   * Codex: the newest session transcript, whose token_count events carry the plan's rate limits.
+#   * Codex: the session transcripts, whose token_count events carry the plan's rate limits.
 LIMITS_DIR = os.path.expanduser(os.environ.get("CONDUCTOR_LIMITS_DIR", "~/.cache/g2c/usage"))
 LIMITS_FILE = os.path.expanduser(os.environ.get("CONDUCTOR_LIMITS_FILE", ""))
 _limits_cache = {"t": 0.0, "v": []}
@@ -253,30 +254,70 @@ def _window(pct, resets_at, now):
     return pct
 
 
-def _codex_limits(now):
-    files = glob.glob(os.path.join(sources.CODEX_SESSIONS, "**", "rollout-*.jsonl"), recursive=True)
-    if not files:
-        return None
-    newest = max(files, key=lambda f: os.path.getmtime(f))
-    with open(newest, "rb") as f:
-        f.seek(0, os.SEEK_END)
-        f.seek(max(0, f.tell() - 2 * 1024 * 1024))
+_codex_seen = {}   # path -> ((size, mtime), (event time, rate_limits) or None): don't re-read an unchanged file
+
+
+def _codex_last_limits(path, st):
+    """(event time, rate_limits) of the last token_count event in a Codex transcript that carries a
+    window's used_percent, or None."""
+    key = (st.st_size, st.st_mtime)
+    if _codex_seen.get(path, (None,))[0] == key:
+        return _codex_seen[path][1]
+    found = None
+    with open(path, "rb") as f:
+        f.seek(max(0, st.st_size - 2 * 1024 * 1024))
         tail = f.read().split(b"\n")
     for raw in reversed(tail):
         if b'"rate_limits"' not in raw or b'"token_count"' not in raw:
             continue
         try:
-            rl = (json.loads(raw).get("payload") or {}).get("rate_limits") or {}
+            d = json.loads(raw)
+            rl = (d.get("payload") or {}).get("rate_limits")
+            if not any(isinstance(w, dict) and w.get("used_percent") is not None
+                       for w in (rl.get("primary"), rl.get("secondary"))):
+                continue
+            try:
+                t = datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00")).timestamp()
+            except Exception:
+                t = st.st_mtime   # no usable timestamp: the file's own time
+            found = (t, rl)
+            break
         except Exception:
             continue
-        out = {"label": "Codex", "agent": "codex", "session": None, "week": None, "at": os.path.getmtime(newest)}
-        for w in (rl.get("primary"), rl.get("secondary")):
-            if not isinstance(w, dict) or w.get("used_percent") is None:
-                continue
-            key = "week" if (w.get("window_minutes") or 0) >= 1440 else "session"   # 300 = 5 hours, 10080 = a week
-            out[key] = _window(_pct(w.get("used_percent")), w.get("resets_at"), now)
-        return out
-    return None
+    _codex_seen[path] = (key, found)
+    return found
+
+
+def _codex_limits(now):
+    """The newest plan numbers in any Codex transcript. Not just the newest file's: a sub-session
+    (e.g. a "guardian" check) is often newest and has none, and a long session's file can be written
+    to after its last numbers. So walk files newest-first and stop at one older than the best event
+    found (no file holds an event newer than its own mtime)."""
+    files = []
+    for p in glob.glob(os.path.join(sources.CODEX_SESSIONS, "**", "rollout-*.jsonl"), recursive=True):
+        try:
+            files.append((os.stat(p), p))
+        except OSError:
+            continue
+    best = None
+    for st, p in sorted(files, key=lambda x: x[0].st_mtime, reverse=True)[:20]:   # a login without plan numbers (API key) has none anywhere
+        if best and st.st_mtime < best[0]:
+            break
+        try:
+            got = _codex_last_limits(p, st)
+        except OSError:
+            continue
+        if got and (not best or got[0] > best[0]):
+            best = got
+    if not best:
+        return None
+    out = {"label": "Codex", "agent": "codex", "session": None, "week": None, "at": best[0]}
+    for w in (best[1].get("primary"), best[1].get("secondary")):
+        if not isinstance(w, dict) or w.get("used_percent") is None:
+            continue
+        key = "week" if (w.get("window_minutes") or 0) >= 1440 else "session"   # 300 = 5 hours, 10080 = a week
+        out[key] = _window(_pct(w.get("used_percent")), w.get("resets_at"), now)
+    return out
 
 
 def plan_limits(now=None):
