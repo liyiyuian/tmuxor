@@ -772,16 +772,23 @@ def _openai_key_files(path_override=None):
                         "~/.env", "~/.openai", "~/.config/openai/key", "~/.config/openai.env") if p]
 
 
+# The variable that holds the OpenAI key, in the environment or in a key file. Set
+# CONDUCTOR_OPENAI_KEY_VAR to use another name (e.g. a key kept in ~/.env under its own name); then
+# only that name is used, never some other sk-... found in the files.
+OPENAI_KEY_VAR = re.sub(r"\W", "", os.environ.get("CONDUCTOR_OPENAI_KEY_VAR", ""))
+
+
 def openai_key_checked(path_override=None):
     """Human-readable list of WHERE we look for the key — shown when voice is off."""
-    return ["OPENAI_API_KEY env var"] + [os.path.expanduser(p) for p in _openai_key_files(path_override)]
+    return [(OPENAI_KEY_VAR or "OPENAI_API_KEY") + " env var"] + [os.path.expanduser(p) for p in _openai_key_files(path_override)]
 
 
 def openai_key(path_override=None):
     """Find the OpenAI key WITHOUT it ever touching the phone: env var first, then common key
     files on this machine (and an optional user-set path). Returns '' if none found. Excludes
     Anthropic keys (sk-ant-)."""
-    k = os.environ.get("OPENAI_API_KEY", "")
+    var = OPENAI_KEY_VAR or "OPENAI_API_KEY"
+    k = os.environ.get(var, "")
     if k.startswith("sk-") and not k.startswith("sk-ant-"):
         return k
     for p in _openai_key_files(path_override):
@@ -790,9 +797,9 @@ def openai_key(path_override=None):
                 txt = f.read()
         except OSError:
             continue
-        # prefer an OPENAI_API_KEY=... line; else a bare sk-... that isn't an Anthropic key
-        m = re.search(r"OPENAI_API_KEY\s*[=:]\s*['\"]?(sk-[A-Za-z0-9_\-]{20,})", txt) \
-            or re.search(r"(?<![A-Za-z0-9])(sk-(?!ant-)[A-Za-z0-9_\-]{20,})", txt)
+        # prefer a <var>=... line; else (no name set) a bare sk-... that isn't an Anthropic key
+        m = re.search(r"(?<![A-Za-z0-9_])" + var + r"\s*[=:]\s*['\"]?(sk-[A-Za-z0-9_\-]{20,})", txt) \
+            or (not OPENAI_KEY_VAR and re.search(r"(?<![A-Za-z0-9])(sk-(?!ant-)[A-Za-z0-9_\-]{20,})", txt))
         if m:
             return m.group(1)
     return ""

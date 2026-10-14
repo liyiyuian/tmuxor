@@ -52,6 +52,9 @@ CONDUCTOR_TOKEN=PASTE_A_LONG_RANDOM_TOKEN_HERE
 
 # REQUIRED for voice — OpenAI Whisper transcription
 OPENAI_API_KEY=sk-...
+# ...or, to use a key you already keep in ~/.env under another name, leave OPENAI_API_KEY out and
+# name that variable instead:
+# CONDUCTOR_OPENAI_KEY_VAR=MY_OPENAI_KEY
 
 # OPTIONAL — your own Anthropic key: only if you turn them on in the app, for AI summaries in
 # the list preview and condensed replies (Claude Haiku unless you choose another model).
