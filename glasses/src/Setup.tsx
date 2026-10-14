@@ -18,7 +18,7 @@ const STATUS: Record<string, string> = { waiting: 'needs you', working: 'working
 
 const C = { bg: '#0b0f0c', card: '#0f1712', line: '#173a26', edge: '#1f6e45', accent: '#16c46a', text: '#d6ffe6', soft: '#b9d8c6', mute: '#7f9a8b' }
 const card: CSSProperties = { border: `1px solid ${C.edge}`, borderRadius: 12, background: C.card, overflow: 'hidden' }
-const rowBtn: CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 14px', border: 'none', borderBottom: `1px solid ${C.line}`, background: 'transparent', color: C.text, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }
+const rowBtn: CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, width: '100%', boxSizing: 'border-box', padding: '12px 14px', border: 'none', borderBottom: `1px solid ${C.line}`, background: 'transparent', color: C.text, textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer' }
 const pill = (on: boolean): CSSProperties => ({ flex: 'none', minWidth: 44, padding: '5px 10px', borderRadius: 999, fontSize: 13, fontWeight: 700, textAlign: 'center', background: on ? C.accent : 'transparent', color: on ? '#04130a' : C.mute, border: `1px solid ${on ? C.accent : '#2c4a3a'}` })
 const chip = (on: boolean): CSSProperties => ({ padding: '7px 12px', borderRadius: 999, fontSize: 14, fontFamily: 'inherit', cursor: 'pointer', background: on ? '#123524' : 'transparent', color: on ? C.text : '#5f7a6b', border: `1px solid ${on ? C.accent : '#243a2e'}`, textDecoration: on ? 'none' : 'line-through' })
 
@@ -39,14 +39,15 @@ const FAIL_WHY: Record<string, string> = { rejected: 'key rejected', quota: 'out
 // Under a model group: does the provider still accept the backend's key, and has a real call failed
 // since? (An accepted key can still be out of credit, so both are said.)
 function KeyLine({ name, h, f }: { name: string; h: KeyHealth; f?: { reason: string; at: number } }) {
-  const text = h.state === 'ok' ? `● Key accepted by ${name}`
-    : h.state === 'rejected' ? `○ ${name} rejected this key: make a new key and set it on your computer (see SETUP.md), then Check now`
-    : h.state === 'unreachable' ? `Couldn’t reach ${name} to check the key` : ''
-  const fail = f ? `last call ${ago(f.at)}: ${FAIL_WHY[f.reason] || 'failed'}` : ''
-  const bad = h.state === 'rejected' || !!f
+  const [text, color, help] = h.state === 'ok' ? [`● Key accepted by ${name}`, C.accent, '']
+    : h.state === 'rejected' ? [`○ ${name} rejected this key`, '#ffb38a', 'Make a new key, set it on your computer (see SETUP.md), then tap Check now.']
+    : h.state === 'unreachable' ? [`Couldn’t reach ${name} to check the key`, C.mute, ''] : ['', C.mute, '']
+  const fail = f ? `Last call ${ago(f.at)}: ${FAIL_WHY[f.reason] || 'failed'}` : ''
   return (text || fail) ? (
-    <span data-testid="key-line" style={{ display: 'block', fontSize: 12, marginTop: 4, lineHeight: 1.35, color: bad ? '#ffb38a' : h.state === 'ok' ? C.accent : C.mute }}>
-      {[text, fail].filter(Boolean).join(' · ')}
+    <span data-testid="key-line" style={{ display: 'block', fontSize: 12, marginTop: 6, lineHeight: 1.4 }}>
+      {text && <span style={{ display: 'block', color }}>{text}</span>}
+      {fail && <span style={{ display: 'block', color: '#ffb38a' }}>{fail}</span>}
+      {help && <span style={{ display: 'block', color: C.mute }}>{help}</span>}
     </span>
   ) : null
 }
@@ -322,33 +323,45 @@ export function Setup({ onSave }: { onSave: () => void }) {
 
       {/* which model does the paid work — offered by the backend, cheapest first; '' = its default */}
       {live.models && (live.canSummarize || live.voiceOn) && (
-        <Section title="Models" hint="Which model your backend uses, at list prices. The first of each is the cheapest.">
+        <Section title="Models" hint="Which model your backend uses, at list prices, cheapest first.">
           <div style={card}>
             {([
-              live.canSummarize && ['AI summary and condensed replies', 'Anthropic, per million tokens in / out', live.models.summary, sumModel || live.models.summary_default,
+              live.canSummarize && ['AI summary and condensed replies', 'Anthropic · per million tokens, in / out', live.models.summary, sumModel || live.models.summary_default,
                 (id: string) => { setSumModel(id); setSummaryModel(id); modelSettingChanged() }, (m: ModelChoice) => m.in == null ? '' : `$${m.in} / $${m.out}`, 'anthropic', 'summary'],
-              live.voiceOn && ['Voice', 'OpenAI speech to text, per minute', live.models.voice, voiceModel || live.models.voice_default,
+              live.voiceOn && ['Voice', 'OpenAI · speech to text, per minute', live.models.voice, voiceModel || live.models.voice_default,
                 (id: string) => { setVoiceM(id); setVoiceModel(id) }, (m: ModelChoice) => m.per_min == null ? '' : `$${m.per_min}`, 'openai', 'voice'],
             ] as (false | [string, string, ModelChoice[], string, (id: string) => void, (m: ModelChoice) => string, 'anthropic' | 'openai', string])[]).map((g) => g && (
-              <div key={g[0]} style={{ ...rowBtn, cursor: 'default', flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+              <div key={g[0]} style={{ ...rowBtn, cursor: 'default', flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
                 <span>
                   <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{g[0]}</span>
                   <span style={{ display: 'block', fontSize: 12, color: C.mute, marginTop: 2 }}>{g[1]}</span>
                   {keys && <KeyLine name={g[6] === 'anthropic' ? 'Anthropic' : 'OpenAI'} h={keys[g[6]]} f={keys.last_failure[g[7]]} />}
                 </span>
-                <span role="group" aria-label={g[0]} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {g[2].map((m) => (
-                    <button key={m.id} type="button" data-testid="model-opt" aria-pressed={g[3] === m.id} style={{ ...pill(g[3] === m.id), cursor: 'pointer', fontFamily: 'inherit' }}
-                      onClick={() => g[4](m.id)}>{m.label}{g[5](m) && <span style={{ fontWeight: 400, opacity: 0.8 }}> · {g[5](m)}</span>}
-                      {keys?.[g[6]].models?.[m.id] === false && <span style={{ fontWeight: 400 }}> · not available to this key</span>}</button>
-                  ))}
+                {/* one full-width row per model (a phone-sized tap target): name left, price right */}
+                <span role="radiogroup" aria-label={g[0]} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {g[2].map((m) => {
+                    const on = g[3] === m.id, off = keys?.[g[6]].models?.[m.id] === false
+                    return (
+                      <button key={m.id} type="button" role="radio" aria-checked={on} data-testid="model-opt" aria-pressed={on} onClick={() => g[4](m.id)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', boxSizing: 'border-box', minHeight: 44, padding: '8px 12px', borderRadius: 10,
+                          border: `1px solid ${on ? C.accent : '#2c4a3a'}`, background: on ? '#123524' : 'transparent', color: on ? C.text : C.soft,
+                          fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer', opacity: off && !on ? 0.6 : 1 }}>
+                        <span aria-hidden style={{ flex: 'none', width: 10, height: 10, borderRadius: '50%', border: `2px solid ${on ? C.accent : '#4a6557'}`, background: on ? C.accent : 'transparent' }} />
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: 'block', fontSize: 15, fontWeight: on ? 700 : 500 }}>{m.label}</span>
+                          {off && <span style={{ display: 'block', fontSize: 12, color: '#ffb38a', marginTop: 1 }}>not available to this key</span>}
+                        </span>
+                        {g[5](m) && <span style={{ flex: 'none', fontSize: 13, color: on ? C.text : C.mute, fontVariantNumeric: 'tabular-nums' }}>{g[5](m)}</span>}
+                      </button>
+                    )
+                  })}
                 </span>
               </div>
             ))}
             <div style={{ ...rowBtn, cursor: 'default', borderBottom: 'none', fontSize: 12, color: C.mute }}>
-              <span style={{ flex: 1 }} data-testid="keys-status">{keysOld.current ? 'Run install.sh again to update your backend: it can then check here that your keys still work.'
+              <span style={{ flex: 1, minWidth: 0 }} data-testid="keys-status">{keysOld.current ? 'Run install.sh again to update your backend: it can then check here that your keys still work.'
                 : keys ? `Keys checked ${ago(keys.checked)}` : checking ? 'Checking your keys…' : 'Couldn’t check your keys'}</span>
-              {!keysOld.current && <button type="button" data-testid="keys-check" disabled={checking} style={{ ...pill(false), cursor: 'pointer', fontFamily: 'inherit' }}
+              {!keysOld.current && <button type="button" data-testid="keys-check" disabled={checking} style={{ ...pill(false), minHeight: 36, cursor: 'pointer', fontFamily: 'inherit' }}
                 onClick={() => loadKeys(true)}>{checking ? 'Checking…' : 'Check now'}</button>}
             </div>
           </div>
