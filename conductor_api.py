@@ -16,6 +16,7 @@ Endpoints:
   GET  /api/panes/<n>/condensed                   -> same shape: the latest reply condensed (opt-in)
   GET  /api/usage                                 -> {today, week, since}: paid API calls and their cost by provider + model
   GET  /api/limits                                -> {limits:[{label, agent, session, week}]}: plan usage in percent, from local files
+  GET  /api/keys[?force=1]                        -> {anthropic, openai: {state, models}, checked, last_failure}: are the keys accepted
   GET  /api/windows                               -> {windows:[{index,name,panes}]}
   POST /api/panes/<n>/send  {text, submit=true}   -> {ok, pane, submitted}
   POST /api/panes/<n>/keys  {keys}                -> {ok, pane, keys}
@@ -425,6 +426,86 @@ def model_choices():
         "voice": [{"id": m, "label": lab, "per_min": usd} for m, lab, usd in VOICE_MODELS],
         "voice_default": VOICE_MODEL,
     }
+
+
+# --- key health (the phone's Setup page asks): does each provider still accept the backend's key,
+# and which of the offered models can it use? Only the providers' FREE model-info calls, never a
+# billed one, and at most every 10 minutes (1 when the user taps "Check now") however often phones
+# ask. An accepted key can still fail real calls (no credit left), so the last real failure of each
+# kind is kept too: its HTTP code, what it means and when — never the provider's message, which can
+# hold part of the key.
+ANTHROPIC_MODELS_URL = os.environ.get("CONDUCTOR_ANTHROPIC_MODELS_URL", "https://api.anthropic.com/v1/models/")
+OPENAI_URL = os.environ.get("CONDUCTOR_OPENAI_URL", "https://api.openai.com/v1/")
+KEY_CHECK_EVERY = 600
+_keys = {}             # key-file path -> (time checked, answer)
+_keys_lock = threading.Lock()
+_last_fail = {}        # "summary" | "voice" -> {code, reason, at}; dropped by the next call that works
+
+
+def _fail_reason(e):
+    """What a provider's HTTPError means for the user: rejected (bad key) / quota (no credit) /
+    busy (rate limited) / failed."""
+    try:
+        body = e.read(4096)
+    except Exception:
+        body = b""
+    if e.code in (401, 403):
+        return "rejected"
+    if e.code == 429:
+        return "quota" if b"insufficient_quota" in body else "busy"
+    if e.code == 400 and b"credit balance" in body:
+        return "quota"
+    return "failed"
+
+
+def _probe(url, headers):
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=5) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, b""
+    except Exception:
+        return None, b""
+
+
+def _key_state(codes):
+    """rejected = the provider refused the key; ok = it answered for it (404 = that model only);
+    else unreachable — 429 / 5xx / no network mean "couldn't check", never a bad key."""
+    if any(c in (401, 403) for c in codes):
+        return "rejected"
+    return "ok" if any(c in (200, 404) for c in codes) else "unreachable"
+
+
+def check_keys(keypath=None, force=False):
+    with _keys_lock:
+        hit = _keys.get(keypath)
+        if hit and time.time() - hit[0] < (60 if force else KEY_CHECK_EVERY):
+            out = dict(hit[1])
+        else:
+            out = {"anthropic": {"state": "none"}, "openai": {"state": "none"}}
+            k = _anthropic_key()
+            if k:
+                codes = {}
+                for m, _ in SUMMARY_MODELS:
+                    codes[m] = _probe(ANTHROPIC_MODELS_URL + m, {"x-api-key": k, "anthropic-version": "2023-06-01"})[0]
+                    if codes[m] in (None, 401, 403):
+                        break    # no network, or the key is refused: the other models would say the same
+                out["anthropic"] = {"state": _key_state(codes.values()),
+                                    "models": {m: c == 200 for m, c in codes.items() if c in (200, 404)}}
+            k = openai_key(keypath)
+            if k:
+                code, body = _probe(OPENAI_URL + "models", {"Authorization": "Bearer " + k})
+                try:
+                    ids = {m.get("id") for m in json.loads(body).get("data", [])}
+                except Exception:
+                    ids = None
+                out["openai"] = {"state": _key_state([code]),
+                                 "models": {m: m in ids for m, _, _ in VOICE_MODELS} if code == 200 and ids is not None else {}}
+            out["checked"] = time.time()
+            _keys[keypath] = (out["checked"], out)
+            out = dict(out)
+    out["last_failure"] = dict(_last_fail)
+    return out
 SUMMARY_MAX_CHARS = 6000  # of the END of the reply sent to the model — bounds cost; the conclusion is what matters
 SUMMARY_PROMPT_CHARS = 2000  # of the START of the request — a pasted log must not be sent whole
 SUMMARY_SYSTEM = (
@@ -678,8 +759,10 @@ def _summarize_job(pid, jsonl, etag, kind="line", model=None, limit=LINE_CHARS):
             result = prev[1]                 # new transcript state, same words: reuse, no model call
         elif reply and not (kind == "reply" and len(reply) <= CONDENSE_MIN_CHARS):
             result = summarize_exchange(*text, kind=kind, model=model, limit=limit)
+            _last_fail.pop("summary", None)
     except urllib.error.HTTPError as e:
         print(f"[summary] {model} failed: HTTP {e.code}", flush=True)   # a failed call must be visible too
+        _last_fail["summary"] = {"code": e.code, "reason": _fail_reason(e), "at": time.time()}
         if e.code == 429 or e.code >= 500:   # transient: try this transcript again, but not for a minute
             keep, _sum_retry_at = False, time.time() + 60
         # any other 4xx (bad key, bad request) won't fix itself for this transcript -> remember "nothing"
@@ -825,7 +908,7 @@ def whisper_transcribe(audio, key, model=None):
              + b"Content-Type: audio/wav" + crlf + crlf + audio + crlf
              + b"--" + bb + b"--" + crlf)
     req = urllib.request.Request(
-        "https://api.openai.com/v1/audio/transcriptions", data=body,
+        OPENAI_URL + "audio/transcriptions", data=body,
         headers={"Authorization": "Bearer " + key,
                  "Content-Type": "multipart/form-data; boundary=" + boundary}, method="POST")
     with urllib.request.urlopen(req, timeout=60) as r:
@@ -987,6 +1070,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"panes": views})
         if path == "/api/limits":  # plan usage per account (read from local files only — see plan_limits)
             return self._json(200, {"limits": plan_limits()})
+        if path == "/api/keys":    # are the API keys still accepted, and for which models (free checks, cached — see check_keys)
+            return self._json(200, check_keys(q.get("keypath", [None])[0], q.get("force", [""])[0] == "1"))
         if path == "/api/usage":   # what the paid API calls cost: today and the last 7 days, by provider and model
             return self._json(200, usage_report())
         if path == "/api/windows":
@@ -1070,11 +1155,17 @@ class Handler(BaseHTTPRequestHandler):
                 rate = VOICE_USD_PER_MIN.get(model)          # None = a model set in the environment, price unknown
                 usd = secs / 60 * rate if rate is not None else None
                 record_usage("OpenAI", model, "voice", seconds=secs, usd=usd)
+                _last_fail.pop("voice", None)
                 return self._json(200, {
                     "text": text,
                     "seconds": round(secs, 1),
                     "cost": round(usd, 4) if usd is not None else None,
                 })
+            except urllib.error.HTTPError as e:   # say what it means (bad key / no credit), not OpenAI's message
+                reason = _fail_reason(e)
+                print(f"[voice] {model} failed: HTTP {e.code} ({reason})", flush=True)
+                _last_fail["voice"] = {"code": e.code, "reason": reason, "at": time.time()}
+                return self._json(502, {"error": "OpenAI: " + reason, "reason": reason})
             except Exception as e:
                 return self._json(502, {"error": str(e)})
         body = self._body()

@@ -6,6 +6,22 @@ project memory; this file is the short "what changed" for each build.
 > Builds: G2C ships as a single **public** `.ehpk` — it bakes no secrets, so every user
 > enters their own backend URL + token on the app's Setup screen.
 
+## Next version (not released yet)
+
+- **Are your keys still working?** The phone's **Models** section now says whether Anthropic and
+  OpenAI still accept your backend's keys, marks any model a key can't use, and shows the last real
+  call that failed (e.g. "out of credit"). It checks when the page opens, every 5 minutes while it is
+  on screen, and on **Check now** — with the providers' free model-info calls only, cached on the
+  backend for 10 minutes. Needs the new backend.
+- **Voice says why it failed.** "OpenAI key rejected — see Setup" or "OpenAI: out of credit — see
+  Setup" on the glasses instead of "transcribe failed".
+- **Finished first on / off.** A new glasses-menu switch (also on the phone): turn it off and a
+  session that finishes keeps its place in the list, marked ●, instead of moving to the top.
+- **Codex plan usage shows again.** It disappeared whenever the newest Codex transcript was a short
+  sub-session with no usage numbers in it (backend fix).
+- **Backend:** `CONDUCTOR_OPENAI_KEY_VAR=<NAME>` reads the OpenAI key from a variable with another
+  name (e.g. one kept in `~/.env`).
+
 ## 1.0.42 — 2026-10-12
 Everything since 1.0.40, including 1.0.41, which was only a private test build.
 

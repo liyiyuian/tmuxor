@@ -167,9 +167,24 @@ export async function translate(description: string, cwd: string): Promise<strin
 
 // Send captured WAV audio to the server -> OpenAI speech-to-text (`model`: one the backend offers,
 // '' = its default, Whisper) -> transcript + cost (USD).
+// A failed transcription throws an Error whose message is the backend's `reason` when it gave one
+// (rejected = bad key, quota = no credit left, busy = rate limited), else `transcribe <status>`.
 export async function transcribe(wav: Blob, model = ''): Promise<{ text: string; cost: number; seconds: number }> {
   const r = await fetch(`${base()}/api/transcribe${qs(keyPathQ(), modelQ(model))}`, { method: 'POST', headers: authHeaders(), body: wav })
-  if (!r.ok) throw new Error(`transcribe ${r.status}`)
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).reason || `transcribe ${r.status}`)
+  return r.json()
+}
+
+// Are the backend's API keys still accepted, and which offered models can each use? `state`:
+// ok (accepted) / rejected / unreachable (couldn't check) / none (no key). `last_failure` = the last
+// real summary / voice call that failed, until one works again. The backend checks with free calls
+// and caches 10 minutes (`force` = "Check now": 1 minute). null from a backend that predates this.
+export interface KeyHealth { state: 'ok' | 'rejected' | 'unreachable' | 'none'; models?: Record<string, boolean> }
+export interface Keys { anthropic: KeyHealth; openai: KeyHealth; checked: number; last_failure: Record<string, { code: number; reason: string; at: number }> }
+export async function getKeys(force = false): Promise<Keys | null> {
+  const r = await fetch(`${base()}/api/keys${qs(keyPathQ(), force && 'force=1')}`, { headers: authHeaders(), cache: 'no-store' })
+  if (r.status === 404) return null
+  if (!r.ok) throw new Error(`keys ${r.status}`)
   return r.json()
 }
 

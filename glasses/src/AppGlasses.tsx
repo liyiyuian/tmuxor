@@ -75,7 +75,8 @@ bridge.onEvenHubEvent = (cb) => listen((e) => {
 // that does not apply where you are does nothing.
 const MENU_PIN = 1, MENU_NEXT = 2, MENU_VIEW = 3
 // settings you may want to flip without taking the phone out; the result shows in the top row
-const MENU_SETTINGS: Record<number, Parameters<typeof menuSetting>[0]> = { 4: 'preview', 5: 'summary', 6: 'usage', 7: 'wake', 8: 'sleep' }
+// (the firmware takes at most 10 items, labels ≤ 32 bytes — SDK README)
+const MENU_SETTINGS: Record<number, Parameters<typeof menuSetting>[0]> = { 4: 'preview', 5: 'summary', 6: 'usage', 9: 'finished', 7: 'wake', 8: 'sleep' }
 const menuObject = { menuItems: [
   { itemName: 'Next that needs you', itemID: MENU_NEXT },
   { itemName: 'Condensed / full reply', itemID: MENU_VIEW },
@@ -83,6 +84,7 @@ const menuObject = { menuItems: [
   { itemName: 'Preview on / off', itemID: 4 },
   { itemName: 'AI summary on / off', itemID: 5 },
   { itemName: 'Plan usage on / off', itemID: 6 },
+  { itemName: 'Finished first on / off', itemID: 9 },
   { itemName: 'Wake on finish on / off', itemID: 7 },
   { itemName: 'Sleep: never / 30 s', itemID: 8 },
 ] }

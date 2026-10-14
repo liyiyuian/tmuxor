@@ -4,7 +4,7 @@
 import { listPanes, getLimits, type Limit, paneScreen, paneConversation, paneSummary, paneCondensed, streamPane, sendToPane, sendKeys, translate, transcribe, resolveFolder, newSession, listWindows, health, type Pane, type Turn, type Models } from './api'
 import { GlassBridgeSource } from 'even-toolkit/stt'
 import { getTextWidth, truncateGlassText } from 'even-toolkit/pretext'
-import { getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, isConfigured, getPins, setPins, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, getCondense, getUsageLine, setUsageLine, getSummaryModel, getVoiceModel } from './config'
+import { getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, isConfigured, getPins, setPins, getAiSummary, setAiSummary, getPreview, setPreview, getHiddenTags, getCondense, getUsageLine, setUsageLine, getFinishedFirst, setFinishedFirst, getSummaryModel, getVoiceModel } from './config'
 
 export type Phase = 'view' | 'listening' | 'confirm'
 const SLOTS = 9
@@ -99,6 +99,7 @@ export function noteActivity() { lastActivity = Date.now(); hostBridgeBack(); if
 // A gesture from the glasses or a touch on the phone can only reach a page that is still attached,
 // so either one wakes it up again.
 let hostGone = false
+export const isHostGone = () => hostGone
 export function hostBridgeLost() {
   if (hostGone) return
   hostGone = true
@@ -240,7 +241,7 @@ function questionInTheWay(): boolean {
 // A setting picked from the glasses menu: apply it exactly as the phone's switch does, say what it
 // is now in the top row for a moment (most of these change nothing you can see at once), and let
 // the phone page, if it is open, show the new value.
-export function menuSetting(kind: 'preview' | 'summary' | 'usage' | 'wake' | 'sleep') {
+export function menuSetting(kind: 'preview' | 'summary' | 'usage' | 'finished' | 'wake' | 'sleep') {
   let msg: string
   if (kind === 'preview') { const v = !getPreview(); setPreview(v); previewSettingChanged(); msg = `Preview ${v ? 'on' : 'off'}` }
   else if (kind === 'summary') {
@@ -248,6 +249,7 @@ export function menuSetting(kind: 'preview' | 'summary' | 'usage' | 'wake' | 'sl
     else { const v = !getAiSummary(); setAiSummary(v); summarySettingChanged(); msg = `AI summary ${v ? 'on' : 'off'}${v && !getPreview() ? ' (preview is off)' : ''}` }
   }
   else if (kind === 'usage') { const v = !getUsageLine(); setUsageLine(v); loadLimits(true); msg = `Plan usage ${v ? 'on' : 'off'}` }
+  else if (kind === 'finished') { const v = !getFinishedFirst(); setFinishedFirst(v); finishedSettingChanged(); msg = `Finished first ${v ? 'on' : 'off'}` }
   else if (kind === 'wake') { const v = !getWakeOnChange(); setWakeOnChange(v); msg = `Wake on finish ${v ? 'on' : 'off'}` }
   else { const v = getIdleSleepSec() ? 0 : 30; setIdleSleepSec(v); msg = v ? 'Screen sleep 30 s' : 'Screen sleep never' }
   flash(msg, 2500, { settingsRev: state.settingsRev + 1 })
@@ -330,14 +332,16 @@ const finished = new Set<string>()
 function decorateAndSort(raw: Pane[]): Pane[] {
   const pinCwd = new Map(getPins().map((p) => [p.n, p.cwd]))
   const hidden = new Set(getHiddenTags())  // workspaces the user unticked on the phone
+  const ff = getFinishedFirst()
   return raw
     .filter((p) => !hidden.has(p.tag))
     .map((p) => ({ ...p, done: finished.has(p.n), pinned: pinCwd.get(p.n) === p.cwd }))
     // pinned first; inside each band a session that FINISHED since you last opened it (●) comes
-    // up to the top and goes back to its place once opened; everything else is in the order of the
+    // up to the top and goes back to its place once opened (unless "Finished first" is off: then it
+    // keeps its place and only its ●); everything else is in the order of the
     // multiplexer itself — herdr workspaces, then tabs, then panes — so the list matches the layout
     // on the computer. (Working / idle / needs-you do not move a row: that is its glyph + the counts.)
-    .sort((a, b) => (a.pinned ? 0 : 1) - (b.pinned ? 0 : 1) || (a.done ? 0 : 1) - (b.done ? 0 : 1) || a.window - b.window || a.pane_index - b.pane_index)
+    .sort((a, b) => (a.pinned ? 0 : 1) - (b.pinned ? 0 : 1) || (ff ? (a.done ? 0 : 1) - (b.done ? 0 : 1) : 0) || a.window - b.window || a.pane_index - b.pane_index)
 }
 const MAX_PINS = 30  // pins of sessions that are gone are kept (they may be on the other backend), so cap growth
 // Flips what the user SEES (p.pinned), replacing any stale entry stored under the same id.
@@ -358,6 +362,8 @@ function repaintPanes() {
 }
 // the phone's workspace ticks changed: re-filter the list now (and move the preview with the highlight)
 export function workspaceFilterChanged() { repaintPanes(); showPreview(true) }
+// "Finished first" switched: re-sort now (the highlight stays on the same session)
+export function finishedSettingChanged() { repaintPanes() }
 // workspaces in list order with their session counts, for the phone's show/hide ticks
 function tagCounts(raw: Pane[]): { tag: string; n: number }[] {
   const m = new Map<string, number>()
@@ -1106,6 +1112,9 @@ export async function submitMenu() {
 let mic: GlassBridgeSource | null = null
 let micUnsub: (() => void) | null = null
 let pcm: Float32Array[] = []
+// What the glasses say when speech-to-text failed for a reason a retry won't fix by itself (the
+// backend's `reason`, see api.transcribe); anything else keeps the plain "tap to retry".
+const VOICE_FAIL: Record<string, string> = { rejected: 'OpenAI key rejected — see Setup', quota: 'OpenAI: out of credit — see Setup', busy: 'OpenAI busy — tap to retry' }
 let micRate = 16000
 function stopMic() { try { micUnsub?.(); mic?.stop() } catch { /* ignore */ } micUnsub = null; mic = null }
 function beginMic() {
@@ -1146,7 +1155,7 @@ export async function stopVoice() {
       const res = await transcribe(wav, pickModel('voice'))
       text = res.text
       set({ lastCost: res.cost || 0, totalCost: state.totalCost + (res.cost || 0) })
-    } catch { set({ phase: 'listening', status: 'transcribe failed — tap to retry' }); beginMic(); return }
+    } catch (e) { set({ phase: 'listening', status: VOICE_FAIL[(e as Error).message] || 'transcribe failed — tap to retry' }); beginMic(); return }
   } else if (DEBUG_VOICE) {
     text = state.activeIsClaude ? 'summarize what you just did' : 'list files sorted by size'
   }
@@ -1283,7 +1292,7 @@ async function captureNewVoice(retryPhase: 'tagvoice' | 'listening', debug: stri
       const res = await transcribe(wav, pickModel('voice'))
       text = res.text
       set({ lastCost: res.cost || 0, totalCost: state.totalCost + (res.cost || 0) })
-    } catch { set({ newPhase: retryPhase, newStatus: "didn't catch that — tap to retry" }); return null }
+    } catch (e) { set({ newPhase: retryPhase, newStatus: VOICE_FAIL[(e as Error).message] || "didn't catch that — tap to retry" }); return null }
   } else if (DEBUG_VOICE) { text = debug }
   if (!text) { set({ newPhase: retryPhase, newStatus: 'no speech — tap to retry' }); return null }
   return text

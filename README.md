@@ -95,7 +95,8 @@ replies — everything else happens on the glasses with **three gestures**, reas
   2.2.10+). Pins are saved on your phone. The same menu has **Next that needs you** (jumps down
   the list to the next session waiting on you, then back to the top) and **Condensed / full
   reply** (switches an open session's reply when condensed replies are on), plus quick switches
-  for the preview, AI summary, plan usage, wake on finish and screen sleep.
+  for the preview, AI summary, plan usage, finished first (whether a session that finishes moves
+  to the top), wake on finish and screen sleep.
 - **Reading a session** — opens at the latest question. Swipe to scroll the real prompts and
   replies. **Double-tap** walks you back toward the live edge — latest prompt → bottom → out to
   the list. Tap to reply.

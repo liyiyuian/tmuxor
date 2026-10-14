@@ -233,13 +233,17 @@ Three gestures, reassigned per screen (tap = primary, double-tap = back, swipe =
   your backend offers, with their list prices: Claude Haiku 5.5 (the default and the cheapest),
   Sonnet 5.5 or Opus 5.5 for summaries and condensed replies; OpenAI Whisper (default), GPT-4o
   mini Transcribe or GPT-4o Transcribe for voice. `CONDUCTOR_SUMMARY_MODEL` /
-  `CONDUCTOR_VOICE_MODEL` in the backend's settings file change the defaults.
+  `CONDUCTOR_VOICE_MODEL` in the backend's settings file change the defaults. The same section
+  says whether Anthropic and OpenAI still accept your keys and which models each key can use
+  (free checks, re-done every few minutes while the page is open, or with **Check now**), and the
+  last real call that failed (e.g. out of credit).
 - **Pin a session** — tap ★ next to it on the phone. Or on the glasses: highlight it in the
   session list, tap then press-and-hold to open the system menu, and choose **Pin / unpin
   session** (Even app 2.2.10+). The same menu has **Next that needs you** (in the list: jump to
   the next session waiting on you, then back to the top), **Condensed / full reply** (in a
   session, with condensed replies on), and quick switches for the preview, AI summary, plan
-  usage, wake on finish and screen sleep (never / 30 s).
+  usage, finished first (whether a session that finishes moves to the top), wake on finish and
+  screen sleep (never / 30 s).
 - **Conversation** — opens at the latest question; swipe to scroll, **tap = talk** (speak a
   reply → review screen → tap to send), double-tap = back. You can keep scrolling while it
   listens. A long conversation loads its recent part; swipe up at the top for earlier messages.
@@ -280,4 +284,4 @@ elsewhere, adjust `PROJECT_ROOTS` / `SESSION_DIRS` in `tmux_conductor.py`.
 | 401 on every request | Token on the app's Setup screen doesn't match `CONDUCTOR_TOKEN`. |
 | New session opens the wrong profile | Set `CONDUCTOR_LAUNCH_CMD` to your launcher (e.g. a profile shell function). |
 | App won't update to the new build | Uninstall the old version first, then install (Even keys by version). |
-| Voice does nothing | Check `OPENAI_API_KEY`; confirm glasses mic permission is granted to the app. |
+| Voice does nothing | Look at **Models** on the phone: it says whether OpenAI still accepts your key. Check `OPENAI_API_KEY` (or the variable `CONDUCTOR_OPENAI_KEY_VAR` names); confirm glasses mic permission is granted to the app. |

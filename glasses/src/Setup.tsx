@@ -1,7 +1,7 @@
-import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getAiSummary, setAiSummary, getSeenNews, setSeenNews, getSummaryModel, setSummaryModel, getVoiceModel, setVoiceModel, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense, getUsageLine, setUsageLine } from './config'
-import { listPanes, getUsage, type Usage, type UsageRow, type ModelChoice } from './api'
-import { subscribe, getSnapshot, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged, modelSettingChanged, summarySettingChanged, loadLimits } from './store'
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
+import { getConfig, setConfig, getProjectsDir, setProjectsDir, getOpenaiKeyPath, setOpenaiKeyPath, getIdleSleepSec, setIdleSleepSec, getWakeOnChange, setWakeOnChange, getAiSummary, setAiSummary, getSeenNews, setSeenNews, getSummaryModel, setSummaryModel, getVoiceModel, setVoiceModel, getPreview, setPreview, getHiddenTags, setHiddenTags, getCondense, setCondense, getUsageLine, setUsageLine, getFinishedFirst, setFinishedFirst } from './config'
+import { listPanes, getUsage, getKeys, type Usage, type UsageRow, type ModelChoice, type Keys, type KeyHealth } from './api'
+import { subscribe, getSnapshot, togglePin, previewSettingChanged, workspaceFilterChanged, condenseSettingChanged, modelSettingChanged, summarySettingChanged, finishedSettingChanged, loadLimits, isHostGone } from './store'
 
 // Decode the `tmuxor:<base64>` blob that install.sh prints into a config.
 function decodeBlob(text: string): { base: string; token: string } | null {
@@ -33,6 +33,22 @@ function Toggle({ label, hint, on, onChange }: { label: string; hint: string; on
       <span style={pill(on)}>{on ? 'On' : 'Off'}</span>
     </button>
   )
+}
+const ago = (t: number) => { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago` }
+const FAIL_WHY: Record<string, string> = { rejected: 'key rejected', quota: 'out of credit', busy: 'rate limited' }
+// Under a model group: does the provider still accept the backend's key, and has a real call failed
+// since? (An accepted key can still be out of credit, so both are said.)
+function KeyLine({ name, h, f }: { name: string; h: KeyHealth; f?: { reason: string; at: number } }) {
+  const text = h.state === 'ok' ? `● Key accepted by ${name}`
+    : h.state === 'rejected' ? `○ ${name} rejected this key: make a new key and set it on your computer (see SETUP.md), then Check now`
+    : h.state === 'unreachable' ? `Couldn’t reach ${name} to check the key` : ''
+  const fail = f ? `last call ${ago(f.at)}: ${FAIL_WHY[f.reason] || 'failed'}` : ''
+  const bad = h.state === 'rejected' || !!f
+  return (text || fail) ? (
+    <span data-testid="key-line" style={{ display: 'block', fontSize: 12, marginTop: 4, lineHeight: 1.35, color: bad ? '#ffb38a' : h.state === 'ok' ? C.accent : C.mute }}>
+      {[text, fail].filter(Boolean).join(' · ')}
+    </span>
+  ) : null
 }
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -86,6 +102,10 @@ export function Setup({ onSave }: { onSave: () => void }) {
   const [condense, setCond] = useState(getCondense())
   const [usage, setUsage] = useState<Usage | null>(null)
   const [usageLine, setUl] = useState(getUsageLine())
+  const [finishedFirst, setFf] = useState(getFinishedFirst())
+  const [keys, setKeys] = useState<Keys | null>(null)
+  const [checking, setChecking] = useState(false)
+  const keysOld = useRef(false)  // the backend predates /api/keys: stop asking
   const [sumModel, setSumModel] = useState(getSummaryModel())
   const [voiceModel, setVoiceM] = useState(getVoiceModel())
   const [news, setNews] = useState(() => getSeenNews() !== NEWS_ID)
@@ -107,12 +127,31 @@ export function Setup({ onSave }: { onSave: () => void }) {
 
   // a setting flipped from the glasses menu: show its new value here too
   useEffect(() => {
-    setPv(getPreview()); setAi(getAiSummary()); setUl(getUsageLine()); setWakeChange(getWakeOnChange()); setIdleSec(String(getIdleSleepSec()))
+    setPv(getPreview()); setAi(getAiSummary()); setUl(getUsageLine()); setFf(getFinishedFirst()); setWakeChange(getWakeOnChange()); setIdleSec(String(getIdleSleepSec()))
   }, [live.settingsRev])
 
   // API cost: asked for when the page opens and on "Refresh" — never polled.
   const loadUsage = () => { if (getConfig().base && getConfig().token) getUsage().then(setUsage).catch(() => setUsage(null)) }
   useEffect(loadUsage, [configured])
+
+  // Key health: are the backend's API keys still accepted? Asked when the page opens or comes back
+  // into view, every 5 minutes while it is on screen, and on "Check now" (the backend answers from a
+  // 10-minute cache and checks with free calls only). Never from a hidden or detached page (the
+  // WebView lives on in the background), never again once an older backend says 404, and a failure
+  // stays quiet: nothing here may feed the error reporter.
+  const loadKeys = (force = false) => {
+    if (!getConfig().base || !getConfig().token || keysOld.current || document.visibilityState !== 'visible' || isHostGone()) return
+    setChecking(true)
+    getKeys(force).then((k) => { if (k) setKeys(k); else keysOld.current = true }).catch(() => {}).finally(() => setChecking(false))
+  }
+  useEffect(() => {
+    if (!configured) return
+    loadKeys()
+    const t = setInterval(() => loadKeys(), 5 * 60_000)
+    const onVis = () => { if (document.visibilityState === 'visible') loadKeys() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis) }
+  }, [configured])
 
   // Test the connection before declaring success, so a wrong URL/token/down backend fails
   // HERE (on the phone) instead of dropping the user into an "offline" glasses screen.
@@ -196,7 +235,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
           <div style={{ fontSize: 13, color: C.soft, marginTop: 4, lineHeight: 1.45 }}>
             Tap, then hold opens the menu. It now has <b>Next that needs you</b> (in the session list), <b>Condensed / full reply</b> (in
             a session, when Condensed replies is on) and <b>Pin / unpin session</b>, plus quick switches for the preview, AI summary, plan
-            usage, wake on finish and screen sleep. Tap, double-tap and swipe work as before.
+            usage, finished first, wake on finish and screen sleep. Tap, double-tap and swipe work as before.
           </div>
           <button type="button" style={{ ...pill(true), marginTop: 10, cursor: 'pointer', fontFamily: 'inherit' }}
             onClick={() => { setSeenNews(NEWS_ID); setNews(false) }}>Got it</button>
@@ -262,6 +301,8 @@ export function Setup({ onSave }: { onSave: () => void }) {
               ? live.limits.map((l) => `${l.label} ${[l.session, l.week].map((v) => v == null ? '–' : (100 - v) + '%').join(' / ')}`).join(' · ') + ' left (5-hour / week)'
               : 'Small level bars in the top row: how much of your Claude and Codex plans is left.'}
             onChange={(v) => { setUl(v); setUsageLine(v); loadLimits(true) }} />
+          <Toggle label="Finished first" hint="A session that finishes moves to the top of the list (after pinned ones) until you open it. Off: it keeps its place, marked ●." on={finishedFirst}
+            onChange={(v) => { setFf(v); setFinishedFirst(v); finishedSettingChanged() }} />
           <Toggle label="Wake on finish" hint="Light up when a session finishes or needs you." on={wakeChange}
             onChange={(v) => { setWakeChange(v); setWakeOnChange(v) }} />
           <div style={{ ...rowBtn, cursor: 'default', borderBottom: 'none', flexWrap: 'wrap' }}>
@@ -285,23 +326,31 @@ export function Setup({ onSave }: { onSave: () => void }) {
           <div style={card}>
             {([
               live.canSummarize && ['AI summary and condensed replies', 'Anthropic, per million tokens in / out', live.models.summary, sumModel || live.models.summary_default,
-                (id: string) => { setSumModel(id); setSummaryModel(id); modelSettingChanged() }, (m: ModelChoice) => m.in == null ? '' : `$${m.in} / $${m.out}`],
+                (id: string) => { setSumModel(id); setSummaryModel(id); modelSettingChanged() }, (m: ModelChoice) => m.in == null ? '' : `$${m.in} / $${m.out}`, 'anthropic', 'summary'],
               live.voiceOn && ['Voice', 'OpenAI speech to text, per minute', live.models.voice, voiceModel || live.models.voice_default,
-                (id: string) => { setVoiceM(id); setVoiceModel(id) }, (m: ModelChoice) => m.per_min == null ? '' : `$${m.per_min}`],
-            ] as (false | [string, string, ModelChoice[], string, (id: string) => void, (m: ModelChoice) => string])[]).map((g) => g && (
+                (id: string) => { setVoiceM(id); setVoiceModel(id) }, (m: ModelChoice) => m.per_min == null ? '' : `$${m.per_min}`, 'openai', 'voice'],
+            ] as (false | [string, string, ModelChoice[], string, (id: string) => void, (m: ModelChoice) => string, 'anthropic' | 'openai', string])[]).map((g) => g && (
               <div key={g[0]} style={{ ...rowBtn, cursor: 'default', flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
                 <span>
                   <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{g[0]}</span>
                   <span style={{ display: 'block', fontSize: 12, color: C.mute, marginTop: 2 }}>{g[1]}</span>
+                  {keys && <KeyLine name={g[6] === 'anthropic' ? 'Anthropic' : 'OpenAI'} h={keys[g[6]]} f={keys.last_failure[g[7]]} />}
                 </span>
                 <span role="group" aria-label={g[0]} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {g[2].map((m) => (
                     <button key={m.id} type="button" data-testid="model-opt" aria-pressed={g[3] === m.id} style={{ ...pill(g[3] === m.id), cursor: 'pointer', fontFamily: 'inherit' }}
-                      onClick={() => g[4](m.id)}>{m.label}{g[5](m) && <span style={{ fontWeight: 400, opacity: 0.8 }}> · {g[5](m)}</span>}</button>
+                      onClick={() => g[4](m.id)}>{m.label}{g[5](m) && <span style={{ fontWeight: 400, opacity: 0.8 }}> · {g[5](m)}</span>}
+                      {keys?.[g[6]].models?.[m.id] === false && <span style={{ fontWeight: 400 }}> · not available to this key</span>}</button>
                   ))}
                 </span>
               </div>
             ))}
+            <div style={{ ...rowBtn, cursor: 'default', borderBottom: 'none', fontSize: 12, color: C.mute }}>
+              <span style={{ flex: 1 }} data-testid="keys-status">{keysOld.current ? 'Run install.sh again to update your backend: it can then check here that your keys still work.'
+                : keys ? `Keys checked ${ago(keys.checked)}` : checking ? 'Checking your keys…' : 'Couldn’t check your keys'}</span>
+              {!keysOld.current && <button type="button" data-testid="keys-check" disabled={checking} style={{ ...pill(false), cursor: 'pointer', fontFamily: 'inherit' }}
+                onClick={() => loadKeys(true)}>{checking ? 'Checking…' : 'Check now'}</button>}
+            </div>
           </div>
         </Section>
       )}
@@ -327,7 +376,7 @@ export function Setup({ onSave }: { onSave: () => void }) {
           <li><b>List</b> — swipe to move, tap to open, double-tap to exit.</li>
           <li><b>In a session</b> — swipe to scroll, tap to reply (speak, or type here), double-tap to go back.</li>
           <li><b>When it asks you something</b> — read it, tap, swipe to your answer, tap to choose.</li>
-          <li><b>The glasses menu</b> (tap, then hold) — <i>Next that needs you</i> jumps down the list to the next session waiting on you, then back to the top. <i>Condensed / full reply</i> switches an open session's reply (with Condensed replies on). <i>Pin / unpin session</i> keeps a session on top. The rest are quick switches for settings on this page (preview, AI summary, plan usage, wake on finish, screen sleep never / 30 s); the top row says what changed.</li>
+          <li><b>The glasses menu</b> (tap, then hold) — <i>Next that needs you</i> jumps down the list to the next session waiting on you, then back to the top. <i>Condensed / full reply</i> switches an open session's reply (with Condensed replies on). <i>Pin / unpin session</i> keeps a session on top. The rest are quick switches for settings on this page (preview, AI summary, plan usage, finished first, wake on finish, screen sleep never / 30 s); the top row says what changed.</li>
           <li><b>Marks</b> — ○ idle · » working · ● finished · ! needs you (Codex: ◇ ◆). CAPITALS = pinned. ＊ = written by AI.</li>
           <li><b>Pin from the glasses</b> — highlight a session, tap then press and hold, choose “Pin / unpin session”.</li>
         </ul>
